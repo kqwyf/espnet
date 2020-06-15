@@ -72,12 +72,16 @@ class ESPnetFrontendModel(AbsESPnetModel):
 
         si_snr_loss = self._permutation_loss(torch.unbind(speech_ref, dim=1),
                                              torch.unbind(speech_pre, dim=1), self.si_snr_loss)
-        si_snr = - si_snr_loss.detach()
-        stats = dict(
-            si_snr=si_snr,
-        )
 
         loss = si_snr_loss
+
+        si_snr = - si_snr_loss.detach()
+
+        stats = dict(
+            si_snr=si_snr,
+            loss=loss.detach()
+        )
+
 
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)

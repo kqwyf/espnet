@@ -29,15 +29,13 @@ class EnhFrontend(AbsFrontend):
     def __init__(
             self,
             enh_type: str = 'tf_maksing',
-            fs: Union[int, str] = 16000,
+            fs: int = 16000,
             tf_factor: float = 0.5,
             enh_conf: Dict = None,
     ):
         assert check_argument_types()
         super().__init__()
-        if isinstance(fs, str):
-            fs = humanfriendly.parse_size(fs)
-
+        self.fs = fs
         assert (tf_factor <= 1.0) and (tf_factor >= 0), "tf_factor must in 0~1"
         self.tf_factor = tf_factor
 
@@ -51,9 +49,9 @@ class EnhFrontend(AbsFrontend):
         return self.bins
 
     def forward_rawwav(
-            self, input: torch.Tensor, input_lengths: torch.Tensor
+            self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        predicted_wavs, ilens = self.enh_model.forward_rawwav(input, input_lengths)
+        predicted_wavs, ilens = self.enh_model.forward_rawwav(speech_mix, speech_mix_lengths)
 
         return predicted_wavs, ilens
 

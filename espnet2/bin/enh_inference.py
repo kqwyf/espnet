@@ -10,22 +10,15 @@ import configargparse
 import torch
 from typeguard import check_argument_types
 
-from espnet.nets.beam_search import BeamSearch
-from espnet.nets.beam_search import Hypothesis
-from espnet.nets.scorers.ctc import CTCPrefixScorer
-from espnet.nets.scorers.length_bonus import LengthBonus
 from espnet.utils.cli_utils import get_commandline_args
-from espnet2.fileio.datadir_writer import DatadirWriter
+from espnet2.fileio.sound_scp import SoundScpWriter
 from espnet2.tasks.frontend import FrontendTask
-from espnet2.text.build_tokenizer import build_tokenizer
-from espnet2.text.token_id_converter import TokenIDConverter
+
 from espnet2.torch_utils.device_funcs import to_device
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
 from espnet2.utils.types import str2bool
 from espnet2.utils.types import str2triple_str
 from espnet2.utils.types import str_or_none
-import soundfile as sf
-import os
 
 
 def inference(
@@ -68,6 +61,9 @@ def inference(
     )
     enh_model.eval()
 
+    num_spk = enh_model.num_spk
+    fs = enh_model.fs
+
     # 3. Build data-iterator
     loader = FrontendTask.build_streaming_iterator(
         data_path_and_name_and_type,
@@ -81,32 +77,31 @@ def inference(
         inference=True,
     )
 
-    with DatadirWriter(output_dir) as writer:
-        for keys, batch in loader:
-            assert isinstance(batch, dict), type(batch)
-            assert all(isinstance(s, str) for s in keys), keys
-            _bs = len(next(iter(batch.values())))
-            assert len(keys) == _bs, f"{len(keys)} != {_bs}"
+    writers = []
+    for i in range(num_spk):
+        writers.append(SoundScpWriter(f"{output_dir}/wavs/{i + 1}", f"{output_dir}/spk{i + 1}.scp"))
 
-            with torch.no_grad():
-                # a. To device
-                batch = to_device(batch, device)
+    for keys, batch in loader:
+        assert isinstance(batch, dict), type(batch)
+        assert all(isinstance(s, str) for s in keys), keys
+        _bs = len(next(iter(batch.values())))
+        assert len(keys) == _bs, f"{len(keys)} != {_bs}"
 
-                # b. Forward Encoder
-                waves, _ = enh_model.frontend.forward_rawwav(**batch)
-                assert len(waves) == batch_size, len(waves)
+        with torch.no_grad():
+            # a. To device
+            batch = to_device(batch, device)
+            # b. Forward Enhancement Frontend
+            waves, _ = enh_model.frontend.forward_rawwav(**batch)
+            assert len(waves) == batch_size, len(waves)
 
-            waves = torch.unbind(waves, dim=1)
+        # FIXME(Chenda): will be incorrect when batch size is not 1 or multi-channel case
+        waves = torch.unbind(waves, dim=1)
+        waves = [w.T.cpu().numpy() for w in waves]
+        for (i, w) in enumerate(waves):
+            writers[i][keys[0]] = fs, w
 
-            # FIXME(Chenda): will be incorrect when batch size is not 1 or multi-channel case
-            waves = [w.T.cpu().numpy() for w in waves]
-            for (i, w) in enumerate(waves):
-                spk_folder = f"{output_dir}/wav/{i + 1}"
-                if not os.path.exists(spk_folder):
-                    os.makedirs(spk_folder, mode=0o755, exist_ok=True)
-                sf.write(f"{spk_folder}/{keys[0]}.wav", w, enh_model.frontend.fs)
-
-            pass
+    for writer in writers:
+        writer.close()
 
 
 def get_parser():

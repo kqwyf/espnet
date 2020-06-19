@@ -67,7 +67,7 @@ fi
 ### This part is for WSJ0 mix
 ### Download mixture scripts and create mixtures for 2 speakers
 local/wsj0_create_mixture.sh ${wsj_2mix_scripts} ${WSJ0} ${wsj_full_wav} \
-    ${wsj_2mix_wav} || exit 1;
+    ${wsj_2mix_wav}/2speakers || exit 1;
 local/wsj0_2mix_data_prep.sh --min-or-max ${min_or_max} \
     ${wsj_2mix_wav}/2speakers/wav16k/${min_or_max} \
     ${wsj_2mix_scripts} ${wsj_full_wav} || exit 1;

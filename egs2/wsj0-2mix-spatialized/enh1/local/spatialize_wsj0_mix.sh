@@ -14,7 +14,7 @@ set -e
 set -u
 set -o pipefail
 
-if [ $# -ne 4 ]; then
+if [ $# -ne 3 ]; then
   echo "Usage: $0 <dir> <wsj0-2mix-wav> <wsj0-2mix-spatialized-wav>"
   echo " where <dir> is download space,"
   echo " <wsj0-2mix-wav> is the generated wsj0-2mix path,"
@@ -26,8 +26,8 @@ if [ $# -ne 4 ]; then
 fi
 
 dir=$1
-wsj0_2mix_wav=$3
-wsj0_2mix_spatialized_wav=$2
+wsj0_2mix_wav=$2
+wsj0_2mix_spatialized_wav=$3
 
 
 if ! command -v matlab >/dev/null 2>&1; then
@@ -71,9 +71,25 @@ wget --continue -O ${dir}/RIR-Generator-master/rir_generator.cpp ${url2}
 (cd ${dir}/RIR-Generator-master && mex rir_generator.cpp)
 
 echo "Spatializing Mixtures."
+NUM_SPEAKERS=2
+MIN_OR_MAX="'${min_or_max}'"
+FS=16000                  # 16000 or 8000
+START_IND=1
+STOP_IND=28000            # number of utts: 20000+5000+3000
+USEPARCLUSTER_WITH_IND=1  # 1 for using parallel processing toolbox
+GENERATE_RIRS=1           # 1 for generating RIRs
 
-runfile=${dir}/launch_spatialize.sh
-chmod +x $runfile
+NUM_WORKERS=16            # maximum of 1 MATLAB worker per CPU core is recommended
+sed -i -e "s#c.NumWorkers = 22;#c.NumWorkers = ${NUM_WORKERS};#" ${dir}/spatialize_wsj0_mix.m
+
+# Java must be initialized in order to use the Parallel Computing Toolbox.
+# Please launch MATLAB without the '-nojvm' flag.
+matlab_cmd="matlab -nodesktop -nodisplay -nosplash -r \"spatialize_wsj0_mix(${NUM_SPEAKERS},${MIN_OR_MAX},${FS},${START_IND},${STOP_IND},${USEPARCLUSTER_WITH_IND},${GENERATE_RIRS})\""
+
+cmdfile=${dir}/mix_matlab.sh
+echo "#!/bin/bash" > $cmdfile
+echo $matlab_cmd >> $cmdfile
+chmod +x $cmdfile
 
 # Run Matlab (This may take several hours)
 # Expected data directory to be generated:
@@ -81,6 +97,6 @@ chmod +x $runfile
 #   - ${wsj0_2mix_spatialized_wav}/2speakers_anechoic/wav16k/${min_or_max}/{tr,cv,tt}/{mix,s1,s2}/*.wav
 #   - ${wsj0_2mix_spatialized_wav}/2speakers_reverb/wav16k/${min_or_max}/{tr,cv,tt}/{mix,s1,s2}/*.wav
 cd ${dir}
-$train_cmd ${dir}/spatialize.log $runfile
+$train_cmd ${dir}/spatialize.log $cmdfile
 
 cd ${rootdir}

@@ -13,12 +13,6 @@ if [ $# -le 2 ]; then
   exit 1;
 fi
 
-# Set bash to 'debug' mode, it will exit on :
-# -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',
-set -e
-set -u
-set -o pipefail
-
 wsj0_2mix_datadir=$1
 wsj0_2mix_spatialized_wavdir=$2
 

@@ -10,12 +10,6 @@ if [ $# -le 2 ]; then
   exit 1;
 fi
 
-# Set bash to 'debug' mode, it will exit on :
-# -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',
-set -e
-set -u
-set -o pipefail
-
 find_transcripts=$KALDI_ROOT/egs/wsj/s5/local/find_transcripts.pl
 normalize_transcript=$KALDI_ROOT/egs/wsj/s5/local/normalize_transcript.pl
 
@@ -25,8 +19,8 @@ wsj_full_wav=$3
 
 # check if the wav dir exists.
 for f in $wavdir/tr $wavdir/cv $wavdir/tt; do
-  if [ ! -d $wavdir ]; then
-    echo "Error: $wavdir is not a directory."
+  if [ ! -d $f ]; then
+    echo "Error: $f is not a directory."
     exit 1;
   fi
 done

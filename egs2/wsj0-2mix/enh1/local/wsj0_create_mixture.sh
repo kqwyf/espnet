@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # Copyright  2018  Johns Hopkins University (Author: Xuankai Chang)
+#            2020  Shanghai Jiao Tong University (Authors: Wangyou Zhang)
+# Apache 2.0
 
 . utils/parse_options.sh
 
@@ -43,9 +45,9 @@ wget --continue -O $wdir/create-speaker-mixtures.zip ${url}
 
 unzip ${wdir}/create-speaker-mixtures.zip -d ${dir}
 
+# generate both min and max versions with 8k and 16k data
 sed -i -e "s=/db/processed/public/WSJ0WAV_full=${wsj_full_wav}=" \
        -e "s=/mm1/leroux/wsj0-mix/2speakers=${wsj_2mix_wav}=" \
-       -e "s='min','max'='max'=" \
        ${dir}/create_wav_2speakers.m
 
 echo "WSJ0 wav file."
@@ -61,7 +63,10 @@ echo $matlab_cmd >> $mixfile
 chmod +x $mixfile
 
 # Run Matlab
+# (This may take ~6 hours to generate both min and max versions
+#  on Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz)
 cd ${dir}
+echo "Log is in ${dir}/mix.log"
 $train_cmd ${dir}/mix.log $mixfile
 
 cd ${rootdir}

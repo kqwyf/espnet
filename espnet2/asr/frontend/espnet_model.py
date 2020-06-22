@@ -3,6 +3,7 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 from typing import Union
+from collections import OrderedDict
 from itertools import permutations
 
 import torch
@@ -33,8 +34,6 @@ class ESPnetFrontendModel(AbsESPnetModel):
     def forward(
             self,
             speech_mix: torch.Tensor,
-            speech_ref1: torch.Tensor,
-            speech_ref2: torch.Tensor,
             speech_mix_lengths: torch.Tensor,
             **kwargs
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
@@ -45,8 +44,11 @@ class ESPnetFrontendModel(AbsESPnetModel):
             speech_ref: (Batch, num_speaker, samples)
             speech_lengths: (Batch,)
         """
+        # (Batch, num_speaker, samples)
+        speech_ref = torch.stack([
+            kwargs['speech_ref{}'.format(spk + 1)] for spk in range(self.num_spk)
+        ], dim=1)
         speech_lengths = speech_mix_lengths
-        speech_ref = torch.stack([speech_ref1, speech_ref2], dim=1)
         assert speech_lengths.dim() == 1, speech_lengths.shape
         # Check that batch_size is unified
         assert (
@@ -67,8 +69,8 @@ class ESPnetFrontendModel(AbsESPnetModel):
             magnitude_ref = [abs(ComplexTensor(mr[..., 0], mr[..., 1])) for mr in magnitude_ref]
 
             # predict separated speech and separated magnitude
-            speech_pre, speech_lengths = self.frontend.forward_rawwav(speech_mix, speech_lengths)
-            magnitude_pre, tf_length = self.frontend(speech_mix, speech_lengths)
+            speech_pre, speech_lengths, *__ = self.frontend.forward_rawwav(speech_mix, speech_lengths)
+            magnitude_pre, tf_length, *__ = self.frontend(speech_mix, speech_lengths)
             magnitude_pre = torch.unbind(magnitude_pre, dim=1)
             speech_pre = torch.unbind(speech_pre, dim=1)
 
@@ -87,7 +89,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
             )
         else:
             # TODO:Jing, should find better way to configure for the choice of tf loss and time-only loss.
-            speech_pre, speech_lengths = self.frontend.forward_rawwav(speech_mix, speech_lengths)
+            speech_pre, speech_lengths, *__ = self.frontend.forward_rawwav(speech_mix, speech_lengths)
             speech_pre = torch.unbind(speech_pre, dim=1)
 
             # compute si-snr loss

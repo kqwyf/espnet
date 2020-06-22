@@ -119,7 +119,7 @@ class TasNet(nn.Module):
         T_origin = mixture.size(-1)
         T_conv = est_source.size(-1)
         est_source = F.pad(est_source, (0, T_origin - T_conv))
-        return est_source, ilens
+        return est_source, ilens, None
 
     @classmethod
     def load_model(cls, path):

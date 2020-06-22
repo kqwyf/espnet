@@ -8,15 +8,16 @@ from torch_complex.tensor import ComplexTensor
 from typeguard import check_argument_types
 
 from espnet2.asr.frontend.nets.tf_mask_net import TFMaskingNet
+from espnet2.asr.frontend.nets.tasnet import TasNet
 from espnet2.train.class_choices import ClassChoices
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet2.layers.stft import Stft
 
 frontend_choices = ClassChoices(
     name="enh_model",
-    classes=dict(tf_masking=TFMaskingNet),
+    classes=dict(tf_masking=TFMaskingNet,tasnet=TasNet),
     type_check=torch.nn.Module,
-    default="enh",
+    default="tf_masking",
 )
 
 

@@ -8,16 +8,10 @@ min_or_max=min
 . utils/parse_options.sh
 . ./path.sh
 
-if [ $# -le 2 ]; then
-  echo "Arguments should be WSJ0-2MIX data directory, spatialized WSJ0-2MIX wav path, see local/data.sh for example."
+if [ $# -ne 2 ]; then
+  echo "Arguments should be WSJ0-2MIX data directory and spatialized WSJ0-2MIX wav path, see local/data.sh for example."
   exit 1;
 fi
-
-# Set bash to 'debug' mode, it will exit on :
-# -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',
-set -e
-set -u
-set -o pipefail
 
 wsj0_2mix_datadir=$1
 wsj0_2mix_spatialized_wavdir=$2
@@ -32,7 +26,8 @@ done
 # check if the wav dirs exist.
 for suffix in anechoic reverb; do
   for x in tr cv tt; do
-    if [ ! -d ${wsj0_2mix_spatialized_wavdir}/2speakers_${suffix}/wav16k/${min_or_max}/${x}/mix ]; then
+    f=${wsj0_2mix_spatialized_wavdir}/2speakers_${suffix}/wav16k/${min_or_max}/${x}/mix
+    if [ ! -d $f ]; then
       echo "Error: $f is not a directory."
       exit 1;
     fi
@@ -57,11 +52,13 @@ for x in tr_spatialized_anechoic_multich cv_spatialized_anechoic_multich tt_spat
   awk '{split($1, lst, "_"); spk=lst[1]"_"lst[2]; print($1, spk)}' ${data}/$x/wav.scp | sort > ${data}/$x/utt2spk
   utt2spk_to_spk2utt.pl ${data}/$x/utt2spk > ${data}/$x/spk2utt
 
-  # transcriptions
-  paste -d " " \
-    <(awk -v suffix="$suffix" '{print($1 "_" suffix)}' ${wsj0_2mix_datadir}/${x_ori}/text_spk1) \
-    <(cut -f 2- -d" " ${wsj0_2mix_datadir}/${x_ori}/text_spk1) | sort > ${data}/${x}/text_spk1
-  paste -d " " \
-    <(awk -v suffix="$suffix" '{print($1 "_" suffix)}' ${wsj0_2mix_datadir}/${x_ori}/text_spk2) \
-    <(cut -f 2- -d" " ${wsj0_2mix_datadir}/${x_ori}/text_spk2) | sort > ${data}/${x}/text_spk2
+  # transcriptions (only for 'max' version)
+  if [[ "$min_or_max" = "max" ]]; then
+    paste -d " " \
+      <(awk -v suffix="$suffix" '{print($1 "_" suffix)}' ${wsj0_2mix_datadir}/${x_ori}/text_spk1) \
+      <(cut -f 2- -d" " ${wsj0_2mix_datadir}/${x_ori}/text_spk1) | sort > ${data}/${x}/text_spk1
+    paste -d " " \
+      <(awk -v suffix="$suffix" '{print($1 "_" suffix)}' ${wsj0_2mix_datadir}/${x_ori}/text_spk2) \
+      <(cut -f 2- -d" " ${wsj0_2mix_datadir}/${x_ori}/text_spk2) | sort > ${data}/${x}/text_spk2
+  fi
 done

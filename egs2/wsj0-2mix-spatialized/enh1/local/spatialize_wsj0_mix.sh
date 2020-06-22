@@ -86,17 +86,18 @@ sed -i -e "s#c.NumWorkers = 22;#c.NumWorkers = ${NUM_WORKERS};#" ${dir}/spatiali
 # Please launch MATLAB without the '-nojvm' flag.
 matlab_cmd="matlab -nodesktop -nodisplay -nosplash -r \"spatialize_wsj0_mix(${NUM_SPEAKERS},${MIN_OR_MAX},${FS},${START_IND},${STOP_IND},${USEPARCLUSTER_WITH_IND},${GENERATE_RIRS})\""
 
-cmdfile=${dir}/mix_matlab.sh
+cmdfile=${dir}/spatialize_matlab.sh
 echo "#!/bin/bash" > $cmdfile
 echo $matlab_cmd >> $cmdfile
 chmod +x $cmdfile
 
-# Run Matlab (This may take several hours)
+# Run Matlab (This takes more than 8 hours)
 # Expected data directory to be generated:
 #   - ${wsj0_2mix_spatialized_wav}/RIRs_16k/rir_*.mat
 #   - ${wsj0_2mix_spatialized_wav}/2speakers_anechoic/wav16k/${min_or_max}/{tr,cv,tt}/{mix,s1,s2}/*.wav
 #   - ${wsj0_2mix_spatialized_wav}/2speakers_reverb/wav16k/${min_or_max}/{tr,cv,tt}/{mix,s1,s2}/*.wav
 cd ${dir}
+echo "Log is in ${dir}/spatialize.log"
 $train_cmd ${dir}/spatialize.log $cmdfile
 
 cd ${rootdir}

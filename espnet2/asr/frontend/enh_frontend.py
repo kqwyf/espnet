@@ -6,17 +6,17 @@ import torch
 from torch_complex.tensor import ComplexTensor
 from typeguard import check_argument_types
 
-from espnet2.asr.frontend.nets.tf_mask_net import BeamformerNet
+from espnet2.asr.frontend.nets.beamformer_net import BeamformerNet
 from espnet2.asr.frontend.nets.tf_mask_net import TFMaskingNet
+from espnet2.asr.frontend.nets.tasnet import TasNet
 from espnet2.train.class_choices import ClassChoices
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 
 frontend_choices = ClassChoices(
     name="enh_model",
-    classes=dict(
-        tf_masking=TFMaskingNet,
-        wpe_beamformer=BeamformerNet,
-    ),
+    classes=dict(tf_masking=TFMaskingNet,
+                 tasnet=TasNet,
+                 wpe_beamformer=BeamformerNet),
     type_check=torch.nn.Module,
     default="tf_masking",
 )

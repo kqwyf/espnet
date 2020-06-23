@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from espnet.nets.pytorch_backend.rnn.encoders import RNN
 from espnet2.layers.stft import Stft
-from espnet2.asr.frontend.nets.dnn_wpe import DNN_Beamformer
+from espnet2.asr.frontend.nets.dnn_beamformer import DNN_Beamformer
 from espnet2.asr.frontend.nets.dnn_wpe import DNN_WPE
 from torch_complex.tensor import ComplexTensor
 import torchaudio

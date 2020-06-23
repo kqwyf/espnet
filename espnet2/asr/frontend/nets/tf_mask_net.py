@@ -94,7 +94,7 @@ class TFMaskingNet(torch.nn.Module):
 
         predict_magnitude = torch.stack(predict_magnitude, dim=1)
 
-        return predict_magnitude, flens
+        return predict_magnitude, flens, None
 
     def forward_rawwav(
             self, input: torch.Tensor, ilens: torch.Tensor
@@ -117,7 +117,7 @@ class TFMaskingNet(torch.nn.Module):
         input_phase = input_spectrum / (input_magnitude + 10e-12)
 
         # predict magnitude spectrum for each speaker
-        predcited_magnitudes, flens = self.forward(input, ilens)
+        predcited_magnitudes, flens, *__ = self.forward(input, ilens)
         predcited_magnitudes = torch.unbind(predcited_magnitudes, dim=1)
 
         # magnitude spectrum -> complex spectrum -> raw wave
@@ -126,4 +126,4 @@ class TFMaskingNet(torch.nn.Module):
 
         predicted_wavs = torch.stack([self.stft.inverse(ps, ilens)[0] for ps in predicted_spectrums], dim=1)
 
-        return predicted_wavs, ilens
+        return predicted_wavs, ilens, None

@@ -58,6 +58,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
             elif mask_type == "PSM" or mask_type == "NPSM":
                 phase_r = r / (abs(r) + eps)
                 phase_mix = mix_spec / (abs(mix_spec) + eps)
+                # cos(a - b) = cos(a)*cos(b) + sin(a)*sin(b)
                 cos_theta = phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
                 mask = (abs(r) / (abs(mix_spec) + eps)) * cos_theta
                 mask = mask.clamp(min=0, max=1) if mask_label == "NPSM" else mask.clamp(min=-1, max=1)

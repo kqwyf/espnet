@@ -81,7 +81,7 @@ class DNN_Beamformer(torch.nn.Module):
 
     def forward(
         self, data: ComplexTensor, ilens: torch.LongTensor
-    ) -> Tuple[ComplexTensor, torch.LongTensor, ComplexTensor]:
+    ) -> Tuple[ComplexTensor, torch.LongTensor, torch.Tensor]:
         """The forward function
 
         Notation:

@@ -29,7 +29,6 @@ frontend_conf:
     tf_factor: 1.0
     enh_conf:
         n_fft: 512
-        win_length: None
         hop_length: 128
         num_spk: 2
         normalize_input: False

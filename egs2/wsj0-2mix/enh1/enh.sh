@@ -401,14 +401,14 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     if $use_dereverb_ref; then
         # reference for dereverberation
         _train_data_param+="--train_data_path_and_name_and_type ${_enh_train_dir}/dereverb.scp,dereverb_ref,sound "
-        _valid_data_param="--valid_data_path_and_name_and_type ${_enh_dev_dir}/dereverb.scp,dereverb_ref,sound "
+        _valid_data_param+="--valid_data_path_and_name_and_type ${_enh_dev_dir}/dereverb.scp,dereverb_ref,sound "
     fi
 
     if $use_noise_ref; then
         # reference for denoising
         spk=$(expr $spk_num + 1)
         _train_data_param+="--train_data_path_and_name_and_type ${_enh_train_dir}/noise.scp,speech_ref${spk},sound "
-        _valid_data_param="--valid_data_path_and_name_and_type ${_enh_dev_dir}/noise.scp,speech_ref${spk},sound "
+        _valid_data_param+="--valid_data_path_and_name_and_type ${_enh_dev_dir}/noise.scp,speech_ref${spk},sound "
     fi
 
     # NOTE: --*_shape_file doesn't require length information if --batch_type=unsorted,
@@ -493,8 +493,8 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
         # reference for dereverberation
         _train_data_param+="--train_data_path_and_name_and_type ${_enh_train_dir}/dereverb.scp,dereverb_ref,sound "
         _train_shape_param+="--train_shape_file ${enh_stats_dir}/train/dereverb_ref_shape "
-        _valid_data_param="--valid_data_path_and_name_and_type ${_enh_dev_dir}/dereverb.scp,dereverb_ref,sound "
-        _valid_shape_param="--valid_shape_file ${enh_stats_dir}/valid/dereverb_ref_shape "
+        _valid_data_param+="--valid_data_path_and_name_and_type ${_enh_dev_dir}/dereverb.scp,dereverb_ref,sound "
+        _valid_shape_param+="--valid_shape_file ${enh_stats_dir}/valid/dereverb_ref_shape "
     fi
 
     if $use_noise_ref; then
@@ -502,8 +502,8 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
         spk=$(expr $spk_num + 1)
         _train_data_param+="--train_data_path_and_name_and_type ${_enh_train_dir}/noise.scp,speech_ref${spk},sound "
         _train_shape_param+="--train_shape_file ${enh_stats_dir}/train/speech_ref${spk}_shape "
-        _valid_data_param="--valid_data_path_and_name_and_type ${_enh_dev_dir}/noise.scp,speech_ref${spk},sound "
-        _valid_shape_param="--valid_shape_file ${enh_stats_dir}/valid/speech_ref${spk}_shape "
+        _valid_data_param+="--valid_data_path_and_name_and_type ${_enh_dev_dir}/noise.scp,speech_ref${spk},sound "
+        _valid_shape_param+="--valid_shape_file ${enh_stats_dir}/valid/speech_ref${spk}_shape "
     fi
 
 

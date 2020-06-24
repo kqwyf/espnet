@@ -208,15 +208,15 @@ def get_WPD_filter_v2(
         inv_Rf = Rf.inverse()
     except:
         try:
-           reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
-                                            torch.rand_like(Rf.real)) * 1e-4
+            reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
+                                             torch.rand_like(Rf.real)) * 1e-4
             Rf = Rf / 10e+4
             Phi = Phi / 10e+4
             Rf += reg_coeff_tensor
             inv_Rf = Rf.inverse()
         except:
-           reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
-                                            torch.rand_like(Rf.real)) * 1e-1
+            reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
+                                             torch.rand_like(Rf.real)) * 1e-1
             Rf = Rf / 10e+10
             Phi = Phi / 10e+10
             Rf += reg_coeff_tensor

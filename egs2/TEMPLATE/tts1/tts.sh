@@ -27,8 +27,8 @@ SECONDS=0
 
 # General configuration
 stage=1          # Processes starts from the specified stage.
-stop_stage=6     # Processes is stopped at the specified stage.
-ngpu=0           # The number of gpus ("0" uses cpu, otherwise use gpu).
+stop_stage=7     # Processes is stopped at the specified stage.
+ngpu=1           # The number of gpus ("0" uses cpu, otherwise use gpu).
 num_nodes=1      # The number of nodes
 nj=32            # The number of parallel jobs.
 decode_nj=32     # The number of parallel jobs in decoding.
@@ -40,8 +40,10 @@ expdir=exp       # Directory to save experiments.
 local_data_opts= # Options to be passed to local/data.sh.
 
 # Feature extraction related
-feats_type=raw    # Feature type (fbank or stft or raw).
-audio_format=flac # Audio format (only in feats_type=raw).
+feats_type=raw      # Feature type (fbank or stft or raw).
+audio_format=flac   # Audio format (only in feats_type=raw).
+min_wav_duration=0.1   # Minimum duration in second
+max_wav_duration=20    # Maximum duration in second
 # Only used for feats_type != raw
 fs=16000          # Sampling rate.
 fmin=80           # Minimum frequency of Mel basis.
@@ -75,12 +77,14 @@ decode_model=valid.loss.best.pth # Model path for decoding e.g.,
 griffin_lim_iters=4 # the number of iterations of Griffin-Lim.
 
 # [Task dependent] Set the datadir name created by local/data.sh
-train_set=      # Name of training set.
-dev_set=        # Name of development set.
-eval_sets=      # Names of evaluation sets. Multiple items can be specified.
-srctexts=       # Texts to create token list. Multiple items can be specified.
-nlsyms_txt=none # Non-linguistic symbol list (needed if existing).
-trans_type=char # Transcription type.
+train_set=       # Name of training set.
+dev_set=         # Name of development set.
+eval_sets=       # Names of evaluation sets. Multiple items can be specified.
+srctexts=        # Texts to create token list. Multiple items can be specified.
+nlsyms_txt=none  # Non-linguistic symbol list (needed if existing).
+token_type=phn   # Transcription type.
+cleaner=tacotron # Text cleaner.
+g2p=g2p_en       # g2p method (needed if token_type=phn).
 text_fold_length=150   # fold_length for text data
 speech_fold_length=800 # fold_length for speech data
 
@@ -103,18 +107,20 @@ Options:
     --local_data_opts # Options to be passed to local/data.sh (default="${local_data_opts}").
 
     # Feature extraction related
-    --feats_type   # Feature type (fbank or stft or raw, default="${feats_type}").
-    --audio_format # Audio format (only in feats_type=raw, default="${audio_format}").
-    --fs           # Sampling rate (default="${fs}").
-    --fmax         # Maximum frequency of Mel basis (default="${fmax}").
-    --fmin         # Minimum frequency of Mel basis (default="${fmin}").
-    --n_mels       # The number of mel basis (default="${n_mels}").
-    --n_fft        # The number of fft points (default="${n_fft}").
-    --n_shift      # The number of shift points (default="${n_shift}").
-    --win_length   # Window length (default="${win_length}").
-    --oov          # Out of vocabrary symbol (default="${oov}").
-    --blank        # CTC blank symbol (default="${blank}").
-    --sos_eos=     # sos and eos symbole (default="${sos_eos}").
+    --feats_type     # Feature type (fbank or stft or raw, default="${feats_type}").
+    --audio_format   # Audio format (only in feats_type=raw, default="${audio_format}").
+    --min_wav_duration # Minimum duration in second (default="${min_wav_duration}").
+    --max_wav_duration # Maximum duration in second (default="${max_wav_duration}").
+    --fs             # Sampling rate (default="${fs}").
+    --fmax           # Maximum frequency of Mel basis (default="${fmax}").
+    --fmin           # Minimum frequency of Mel basis (default="${fmin}").
+    --n_mels         # The number of mel basis (default="${n_mels}").
+    --n_fft          # The number of fft points (default="${n_fft}").
+    --n_shift        # The number of shift points (default="${n_shift}").
+    --win_length     # Window length (default="${win_length}").
+    --oov            # Out of vocabrary symbol (default="${oov}").
+    --blank          # CTC blank symbol (default="${blank}").
+    --sos_eos=       # sos and eos symbole (default="${sos_eos}").
 
     # Training related
     --train_config # Config for training (default="${train_config}").
@@ -139,7 +145,9 @@ Options:
     --srctexts   # Texts to create token list (required).
                  # Note that multiple items can be specified.
     --nlsyms_txt # Non-linguistic symbol list (default="${nlsyms_txt}").
-    --trans_type # Transcription type (default="${trans_type}").
+    --token_type # Transcription type (default="${token_type}").
+    --cleaner    # Text cleaner (default="${cleaner}").
+    --g2p        # g2p method (default="${g2p}").
     --text_fold_length   # fold_length for text data
     --speech_fold_length # fold_length for speech data
 EOF
@@ -250,7 +258,6 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
             _nj=$(min "${nj}" "$(<${data_feats}/org/${dset}/utt2spk wc -l)")
             _opts=
             if [ "${feats_type}" = fbank ] ; then
-                _opts+="--fs ${fs} "
                 _opts+="--fmax ${fmax} "
                 _opts+="--fmin ${fmin} "
                 _opts+="--n_mels ${n_mels} "
@@ -258,6 +265,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
 
             # shellcheck disable=SC2086
             scripts/feats/make_"${feats_type}".sh --cmd "${train_cmd}" --nj "${_nj}" \
+                --fs "${fs}" \
                 --n_fft "${n_fft}" \
                 --n_shift "${n_shift}" \
                 --win_length "${win_length}" \
@@ -281,7 +289,7 @@ fi
 
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
-    log "Stage 3: Remove short data: ${data_feats}/org -> ${data_feats}"
+    log "Stage 3: Remove long/short data: ${data_feats}/org -> ${data_feats}"
 
     for dset in "${train_set}" "${dev_set}" ${eval_sets}; do
         # Copy data dir
@@ -291,22 +299,39 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         # Remove short utterances
         _feats_type="$(<${data_feats}/${dset}/feats_type)"
         if [ "${_feats_type}" = raw ]; then
-            min_length=2560
+            _fs=$(python3 -c "import humanfriendly as h;print(h.parse_size('${fs}'))")
+            _min_length=$(python3 -c "print(int(${min_wav_duration} * ${_fs}))")
+            _max_length=$(python3 -c "print(int(${max_wav_duration} * ${_fs}))")
 
             # utt2num_samples is created by format_wav_scp.sh
             <"${data_feats}/org/${dset}/utt2num_samples" \
-                awk -v min_length="$min_length" '{ if ($2 > min_length) print $0; }' \
-                >"${data_feats}/${dset}/utt2num_samples"
+                awk -v min_length="${_min_length}" -v max_length="${_max_length}" \
+                    '{ if ($2 > min_length && $2 < max_length ) print $0; }' \
+                    >"${data_feats}/${dset}/utt2num_samples"
             <"${data_feats}/org/${dset}/wav.scp" \
                 utils/filter_scp.pl "${data_feats}/${dset}/utt2num_samples"  \
                 >"${data_feats}/${dset}/wav.scp"
         else
-            min_length=10
+            # Get frame shift in ms from conf/fbank.conf
+            _frame_shift=
+            if [ -f conf/fbank.conf ] && [ "$(<conf/fbank.conf grep -c frame-shift)" -gt 0 ]; then
+                # Assume using conf/fbank.conf for feature extraction
+                _frame_shift="$(<conf/fbank.conf grep frame-shift | sed -e 's/[-a-z =]*\([0-9]*\)/\1/g')"
+            fi
+            if [ -z "${_frame_shift}" ]; then
+                # If not existing, use the default number in Kaldi (=10ms).
+                # If you are using different number, you have to change the following value manually.
+                _frame_shift=10
+            fi
+
+            _min_length=$(python3 -c "print(int(${min_wav_duration} / ${_frame_shift} * 1000))")
+            _max_length=$(python3 -c "print(int(${max_wav_duration} / ${_frame_shift} * 1000))")
 
             cp "${data_feats}/org/${dset}/feats_dim" "${data_feats}/${dset}/feats_dim"
             <"${data_feats}/org/${dset}/feats_shape" awk -F, ' { print $1 } ' \
-                | awk -v min_length="$min_length" '{ if ($2 > min_length) print $0; }' \
-                >"${data_feats}/${dset}/feats_shape"
+                | awk -v min_length="${_min_length}" -v max_length="${_max_length}" \
+                    '{ if ($2 > min_length && $2 < max_length) print $0; }' \
+                    >"${data_feats}/${dset}/feats_shape"
             <"${data_feats}/org/${dset}/feats.scp" \
                 utils/filter_scp.pl "${data_feats}/${dset}/feats_shape"  \
                 >"${data_feats}/${dset}/feats.scp"
@@ -325,18 +350,20 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
 fi
 
 
-token_list="data/token_list/${trans_type}/tokens.txt"
+token_list="data/token_list/${token_type}/tokens.txt"
 if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
-    log "Stage 4: Generate character level token_list from ${srctexts}"
+    log "Stage 4: Generate token_list from ${srctexts}"
     # "nlsyms_txt" should be generated by local/data.sh if need
 
     # The first symbol in token_list must be "<blank>" and the last must be also sos/eos:
     # 0 is reserved for CTC-blank for ASR and also used as ignore-index in the other task
 
     python3 -m espnet2.bin.tokenize_text \
-          --token_type char -f 2- \
+          --token_type "${token_type}" -f 2- \
           --input "${data_feats}/srctexts" --output "${token_list}" \
-          --non_linguistic_symbols ${nlsyms_txt} \
+          --non_linguistic_symbols "${nlsyms_txt}" \
+          --cleaner "${cleaner}" \
+          --g2p "${g2p}" \
           --write_vocabulary true \
           --add_symbol "${blank}:0" \
           --add_symbol "${oov}:1" \
@@ -364,6 +391,14 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         _scp=wav.scp
         # "sound" supports "wav", "flac", etc.
         _type=sound
+        _opts+="--feats_extract fbank "
+        _opts+="--feats_extract_conf fs=${fs} "
+        _opts+="--feats_extract_conf n_fft=${n_fft} "
+        _opts+="--feats_extract_conf fmin=${fmin} "
+        _opts+="--feats_extract_conf fmax=${fmax} "
+        _opts+="--feats_extract_conf n_mels=${n_mels} "
+        _opts+="--feats_extract_conf hop_length=${n_shift} "
+        _opts+="--feats_extract_conf win_length=${win_length} "
     else
         _scp=feats.scp
         _type=kaldi_ark
@@ -401,9 +436,11 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         python3 -m espnet2.bin.tts_train \
             --collect_stats true \
             --use_preprocessor true \
-            --token_type char \
+            --token_type "${token_type}" \
             --token_list "${token_list}" \
             --non_linguistic_symbols "${nlsyms_txt}" \
+            --cleaner "${cleaner}" \
+            --g2p "${g2p}" \
             --normalize none \
             --train_data_path_and_name_and_type "${_train_dir}/text,text,text" \
             --train_data_path_and_name_and_type "${_train_dir}/${_scp},speech,${_type}" \
@@ -424,18 +461,18 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     # Append the num-tokens at the last dimensions. This is used for batch-bins count
     <"${tts_stats_dir}/train/text_shape" \
         awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
-        >"${tts_stats_dir}/train/text_shape.${trans_type}"
+        >"${tts_stats_dir}/train/text_shape.${token_type}"
 
     <"${tts_stats_dir}/valid/text_shape" \
         awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
-        >"${tts_stats_dir}/valid/text_shape.${trans_type}"
+        >"${tts_stats_dir}/valid/text_shape.${token_type}"
 fi
 
 
-if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
+if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
     _train_dir="${data_feats}/${train_set}"
     _dev_dir="${data_feats}/${dev_set}"
-    log "Stage 5: TTS Training: train_set=${_train_dir}, dev_set=${_dev_dir}"
+    log "Stage 6: TTS Training: train_set=${_train_dir}, dev_set=${_dev_dir}"
 
     _opts=
     if [ -n "${train_config}" ]; then
@@ -450,6 +487,14 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         # "sound" supports "wav", "flac", etc.
         _type=sound
         _fold_length="$((speech_fold_length * 100))"
+        _opts+="--feats_extract fbank "
+        _opts+="--feats_extract_conf fs=${fs} "
+        _opts+="--feats_extract_conf fmin=${fmin} "
+        _opts+="--feats_extract_conf fmax=${fmax} "
+        _opts+="--feats_extract_conf n_mels=${n_mels} "
+        _opts+="--feats_extract_conf hop_length=${n_shift} "
+        _opts+="--feats_extract_conf n_fft=${n_fft} "
+        _opts+="--feats_extract_conf win_length=${win_length} "
     else
         _scp=feats.scp
         _type=kaldi_ark
@@ -471,7 +516,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
                   "${_train_dir}/text" \
                   "${_train_dir}/${_scp}" \
                   "${tts_stats_dir}/train/speech_shape" \
-                  "${tts_stats_dir}/train/text_shape.${trans_type}" \
+                  "${tts_stats_dir}/train/text_shape.${token_type}" \
               --num_splits "${num_splits}" \
               --output_dir "${_split_dir}"
             touch "${_split_dir}/.done"
@@ -481,15 +526,15 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
 
         _opts+="--train_data_path_and_name_and_type ${_split_dir}/text,text,text "
         _opts+="--train_data_path_and_name_and_type ${_split_dir}/${_scp},speech,${_type} "
+        _opts+="--train_shape_file ${_split_dir}/text_shape.${token_type} "
         _opts+="--train_shape_file ${_split_dir}/speech_shape "
-        _opts+="--train_shape_file ${_split_dir}/text_shape.${trans_type} "
         _opts+="--multiple_iterator true "
 
     else
         _opts+="--train_data_path_and_name_and_type ${_train_dir}/text,text,text "
         _opts+="--train_data_path_and_name_and_type ${_train_dir}/${_scp},speech,${_type} "
+        _opts+="--train_shape_file ${tts_stats_dir}/train/text_shape.${token_type} "
         _opts+="--train_shape_file ${tts_stats_dir}/train/speech_shape "
-        _opts+="--train_shape_file ${tts_stats_dir}/train/text_shape.${trans_type} "
     fi
 
     # NOTE(kamo): --fold_length is used only if --batch_type=folded and it's ignored in the other case
@@ -504,34 +549,35 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         --init_file_prefix "${tts_exp}"/.dist_init_ \
         --multiprocessing_distributed true -- \
         python3 -m espnet2.bin.tts_train \
-            --token_list "${_train_dir}/tokens.txt" \
             --use_preprocessor true \
-            --token_type char \
+            --token_type "${token_type}" \
             --token_list "${token_list}" \
             --non_linguistic_symbols "${nlsyms_txt}" \
+            --cleaner "${cleaner}" \
+            --g2p "${g2p}" \
             --normalize global_mvn \
-            --normalize_conf stats_file=${tts_stats_dir}/train/feats_stats.npz \
+            --normalize_conf "stats_file=${tts_stats_dir}/train/feats_stats.npz" \
             --valid_data_path_and_name_and_type "${_dev_dir}/text,text,text" \
             --valid_data_path_and_name_and_type "${_dev_dir}/${_scp},speech,${_type}" \
+            --valid_shape_file "${tts_stats_dir}/valid/text_shape.${token_type}" \
             --valid_shape_file "${tts_stats_dir}/valid/speech_shape" \
-            --valid_shape_file "${tts_stats_dir}/valid/text_shape.${trans_type}" \
             --resume true \
             --fold_length "${text_fold_length}" \
-            --fold_length ${_fold_length} \
+            --fold_length "${_fold_length}" \
             --output_dir "${tts_exp}" \
             ${_opts} ${train_args}
 
 fi
 
 
-if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
-    log "Stage 6: Decoding: training_dir=${tts_exp}"
+if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
+    log "Stage 7: Decoding: training_dir=${tts_exp}"
 
     if ${gpu_decode}; then
-        _cmd=${cuda_cmd}
+        _cmd="${cuda_cmd}"
         _ngpu=1
     else
-        _cmd=${decode_cmd}
+        _cmd="${decode_cmd}"
         _ngpu=0
     fi
 
@@ -541,6 +587,8 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
     fi
 
     _feats_type="$(<${data_feats}/${train_set}/feats_type)"
+
+    # NOTE(kamo): If feats_type=raw, vocoder_conf is unnecessary
     if [ "${_feats_type}" == fbank ] || [ "${_feats_type}" == stft ]; then
         _opts+="--vocoder_conf n_fft=${n_fft} "
         _opts+="--vocoder_conf n_shift=${n_shift} "
@@ -604,8 +652,8 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
 fi
 
 
-if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
-    log "[Option] Stage 7: Pack model: ${tts_exp}/packed.tgz"
+if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
+    log "[Option] Stage 8: Pack model: ${tts_exp}/packed.tgz"
 
     python -m espnet2.bin.pack tts \
         --train_config.yaml "${tts_exp}"/config.yaml \

@@ -120,6 +120,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
             # prepare reference speech and reference spectrum
             speech_ref = torch.unbind(speech_ref, dim=1)
             spectrum_ref = [self.frontend.stft(sr)[0] for sr in speech_ref]
+
             # List[ComplexTensor(Batch, T, F)] or List[ComplexTensor(Batch, T, C, F)]
             spectrum_ref = [ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref]
             sepctrum_mix = self.frontend.stft(speech_mix)[0]
@@ -144,7 +145,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 # compute loss on magnitude spectrum instead
                 magnitude_pre = [abs(ps) for ps in spectrum_pre]
                 magnitude_ref = [abs(sr) for sr in spectrum_ref]
-                tf_loss, perm = self._permutation_loss(magnitude_ref, magnitude_pre, self.tf_l1_loss)
+                tf_loss, perm = self._permutation_loss(magnitude_ref, magnitude_pre, self.tf_l2_loss)
             else:
                 mask_pre_ = [mask_pre['spk{}'.format(spk + 1)] for spk in range(self.num_spk)]
                 if len(mask_ref) > self.num_spk:
@@ -154,7 +155,9 @@ class ESPnetFrontendModel(AbsESPnetModel):
                     mask_noise_ref_ = None
                     mask_ref_ = mask_ref
 
-                tf_loss, perm = self._permutation_loss(mask_ref_, mask_pre_, self.tf_l1_loss)
+                # compute TF masking loss
+                # TODO:Chenda, Shall we add options for computing loss on the masked spectrum?
+                tf_loss, perm = self._permutation_loss(mask_ref_, mask_pre_, self.tf_l2_loss)
 
                 if 'dereverb' in mask_pre:
                     if dereverb_speech_ref is None:
@@ -213,6 +216,18 @@ class ESPnetFrontendModel(AbsESPnetModel):
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
         return loss, stats, weight
+
+
+    @staticmethod
+    def tf_l2_loss(ref, inf):
+        """
+        :param ref: (Batch, T, F)
+        :param inf: (Batch, T, F)
+        :return: (Batch)
+        """
+        l1loss = torch.norm((ref - inf), p=2, dim=[1,2])
+
+        return l1loss
 
     @staticmethod
     def tf_l1_loss(ref, inf):

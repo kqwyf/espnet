@@ -103,27 +103,32 @@ class ESPnetFrontendModel(AbsESPnetModel):
         if self.tf_factor:
             # prepare reference speech and reference spectrum
             speech_ref = torch.unbind(speech_ref, dim=1)
-            sepctrum_ref = [self.frontend.stft(sr)[0] for sr in speech_ref]
-            sepctrum_ref = [ComplexTensor(sr[..., 0], sr[..., 1]) for sr in sepctrum_ref]
-            sepctrum_mix = self.frontend.stft(speech_mix)[0]
-            sepctrum_mix = ComplexTensor(sepctrum_mix[..., 0], sepctrum_mix[..., 1])
+            spectrum_ref = [self.frontend.stft(sr)[0] for sr in speech_ref]
+            spectrum_ref = [ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref]
+            spectrum_mix = self.frontend.stft(speech_mix)[0]
+            spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
 
             # prepare ideal masks
-            mask_ref = self._create_mask_label(sepctrum_mix, sepctrum_ref, mask_type=self.mask_type)
+            mask_ref = self._create_mask_label(spectrum_mix, spectrum_ref, mask_type=self.mask_type)
 
             # predict separated speech and separated magnitude
             spectrum_pre, tf_length, mask_pre = self.frontend(speech_mix, speech_lengths)
 
             # compute TF masking loss
-            tf_loss, perm = self._permutation_loss(mask_ref, mask_pre, self.tf_l1_loss)
+            # TODO:Chenda, Shall we add options for computing loss on the masked spectrum?
+            tf_loss, perm = self._permutation_loss(mask_ref, mask_pre, self.tf_l2_loss)
 
             speech_pre = [self.frontend.stft.inverse(ps, speech_lengths)[0] for ps in spectrum_pre]
 
             # compute si-snr loss
             si_snr_loss, perm = self._permutation_loss(speech_ref, speech_pre, self.si_snr_loss, perm=perm)
-
             si_snr = - si_snr_loss
-            loss = (1 - self.tf_factor) * si_snr_loss + self.tf_factor * tf_loss
+
+            if self.tf_factor == 1.0:
+                loss = tf_loss
+            else:
+                loss = (1 - self.tf_factor) * si_snr_loss + self.tf_factor * tf_loss
+
             stats = dict(
                 si_snr=si_snr.detach(),
                 tf_loss=tf_loss.detach(),
@@ -146,6 +151,18 @@ class ESPnetFrontendModel(AbsESPnetModel):
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
         return loss, stats, weight
+
+
+    @staticmethod
+    def tf_l2_loss(ref, inf):
+        """
+        :param ref: (Batch, T, F)
+        :param inf: (Batch, T, F)
+        :return: (Batch)
+        """
+        l1loss = torch.norm((ref - inf), p=2, dim=[1,2])
+
+        return l1loss
 
     @staticmethod
     def tf_l1_loss(ref, inf):

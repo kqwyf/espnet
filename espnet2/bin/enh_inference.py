@@ -91,11 +91,10 @@ def inference(
             # a. To device
             batch = to_device(batch, device)
             # b. Forward Enhancement Frontend
-            waves, _ = enh_model.frontend.forward_rawwav(**batch)
-            assert len(waves) == batch_size, len(waves)
+            waves, _ , _ = enh_model.frontend.forward_rawwav(**batch)
+            assert len(waves[0]) == batch_size, len(waves)
 
         # FIXME(Chenda): will be incorrect when batch size is not 1 or multi-channel case
-        waves = torch.unbind(waves, dim=1)
         waves = [w.T.cpu().numpy() for w in waves]
         for (i, w) in enumerate(waves):
             writers[i][keys[0]] = fs, w

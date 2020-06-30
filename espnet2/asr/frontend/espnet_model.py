@@ -17,7 +17,7 @@ from functools import reduce
 
 
 class ESPnetFrontendModel(AbsESPnetModel):
-    """CTC-attention hybrid Encoder-Decoder model"""
+    """Speech enhancement or separation Frontend model"""
 
     def __init__(
             self,

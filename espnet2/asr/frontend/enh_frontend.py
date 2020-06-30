@@ -78,7 +78,6 @@ class EnhFrontend(AbsFrontend):
                 'noise': List[ComplexTensor(Batch, Frames, Channel, Freq)],
             ]
         """
-        # 1. Domain-conversion: e.g. Stft: time -> time-freq
 
         predicted_spectrums, flens, masks = self.enh_model(input, input_lengths)
 

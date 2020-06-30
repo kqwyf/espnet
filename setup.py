@@ -52,7 +52,7 @@ requirements = {
         "pytorch_wpe",
         "pypesq>=1.2.4",
         "mir-eval>=0.6",
-        "torchaudio>=0.4"
+        "torchaudio>=0.4",
     ],
     "setup": ["numpy", "pytest-runner"],
     "test": [

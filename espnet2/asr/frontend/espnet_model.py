@@ -1,9 +1,6 @@
 from typing import Dict
-from typing import List
 from typing import Optional
 from typing import Tuple
-from typing import Union
-from collections import OrderedDict
 from itertools import permutations
 
 import torch
@@ -20,8 +17,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
     """Speech enhancement or separation Frontend model"""
 
     def __init__(
-            self,
-            frontend: Optional[AbsFrontend],
+        self, frontend: Optional[AbsFrontend],
     ):
         assert check_argument_types()
 
@@ -41,7 +37,14 @@ class ESPnetFrontendModel(AbsESPnetModel):
         :return: [Tensor(B, T, F), ...] or [ComplexTensor(B, T, F), ...]
         """
 
-        assert mask_type in ["IBM", "IRM", "IAM", "PSM", "NPSM", "ICM"], f"mask type {mask_type} not supported"
+        assert mask_type in [
+            "IBM",
+            "IRM",
+            "IAM",
+            "PSM",
+            "NPSM",
+            "ICM",
+        ], f"mask type {mask_type} not supported"
         eps = 10e-8
         mask_label = []
         for r in ref_spec:
@@ -59,9 +62,15 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 phase_r = r / (abs(r) + eps)
                 phase_mix = mix_spec / (abs(mix_spec) + eps)
                 # cos(a - b) = cos(a)*cos(b) + sin(a)*sin(b)
-                cos_theta = phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
+                cos_theta = (
+                    phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
+                )
                 mask = (abs(r) / (abs(mix_spec) + eps)) * cos_theta
-                mask = mask.clamp(min=0, max=1) if mask_label == "NPSM" else mask.clamp(min=-1, max=1)
+                mask = (
+                    mask.clamp(min=0, max=1)
+                    if mask_label == "NPSM"
+                    else mask.clamp(min=-1, max=1)
+                )
             elif mask_type == "ICM":
                 mask = r / (mix_spec + eps)
                 mask.real = mask.real.clamp(min=-1, max=1)
@@ -71,10 +80,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         return mask_label
 
     def forward(
-            self,
-            speech_mix: torch.Tensor,
-            speech_mix_lengths: torch.Tensor,
-            **kwargs
+        self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
         """Frontend + Encoder + Decoder + Calc loss
 
@@ -84,17 +90,18 @@ class ESPnetFrontendModel(AbsESPnetModel):
             speech_lengths: (Batch,)
         """
         # (Batch, num_speaker, samples)
-        speech_ref = torch.stack([
-            kwargs['speech_ref{}'.format(spk + 1)] for spk in range(self.num_spk)
-        ], dim=1)
+        speech_ref = torch.stack(
+            [kwargs["speech_ref{}".format(spk + 1)] for spk in range(self.num_spk)],
+            dim=1,
+        )
         speech_lengths = speech_mix_lengths
         assert speech_lengths.dim() == 1, speech_lengths.shape
         # Check that batch_size is unified
-        assert (
-                speech_mix.shape[0]
-                == speech_ref.shape[0]
-                == speech_lengths.shape[0]
-        ), (speech_mix.shape, speech_ref.shape, speech_lengths.shape)
+        assert speech_mix.shape[0] == speech_ref.shape[0] == speech_lengths.shape[0], (
+            speech_mix.shape,
+            speech_ref.shape,
+            speech_lengths.shape,
+        )
         batch_size = speech_mix.shape[0]
 
         # for data-parallel
@@ -105,25 +112,36 @@ class ESPnetFrontendModel(AbsESPnetModel):
             # prepare reference speech and reference spectrum
             speech_ref = torch.unbind(speech_ref, dim=1)
             spectrum_ref = [self.frontend.stft(sr)[0] for sr in speech_ref]
-            spectrum_ref = [ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref]
+            spectrum_ref = [
+                ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref
+            ]
             spectrum_mix = self.frontend.stft(speech_mix)[0]
             spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
 
             # prepare ideal masks
-            mask_ref = self._create_mask_label(spectrum_mix, spectrum_ref, mask_type=self.mask_type)
+            mask_ref = self._create_mask_label(
+                spectrum_mix, spectrum_ref, mask_type=self.mask_type
+            )
 
             # predict separated speech and separated magnitude
-            spectrum_pre, tf_length, mask_pre = self.frontend(speech_mix, speech_lengths)
+            spectrum_pre, tf_length, mask_pre = self.frontend(
+                speech_mix, speech_lengths
+            )
 
+            # TODO:Chenda, Shall we add options for computing loss on
+            #  the masked spectrum?
             # compute TF masking loss
-            # TODO:Chenda, Shall we add options for computing loss on the masked spectrum?
             tf_loss, perm = self._permutation_loss(mask_ref, mask_pre, self.tf_l2_loss)
 
-            speech_pre = [self.frontend.stft.inverse(ps, speech_lengths)[0] for ps in spectrum_pre]
+            speech_pre = [
+                self.frontend.stft.inverse(ps, speech_lengths)[0] for ps in spectrum_pre
+            ]
 
             # compute si-snr loss
-            si_snr_loss, perm = self._permutation_loss(speech_ref, speech_pre, self.si_snr_loss, perm=perm)
-            si_snr = - si_snr_loss
+            si_snr_loss, perm = self._permutation_loss(
+                speech_ref, speech_pre, self.si_snr_loss, perm=perm
+            )
+            si_snr = -si_snr_loss
 
             if self.tf_factor == 1.0:
                 loss = tf_loss
@@ -131,28 +149,27 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 loss = (1 - self.tf_factor) * si_snr_loss + self.tf_factor * tf_loss
 
             stats = dict(
-                si_snr=si_snr.detach(),
-                tf_loss=tf_loss.detach(),
-                loss=loss.detach()
+                si_snr=si_snr.detach(), tf_loss=tf_loss.detach(), loss=loss.detach()
             )
         else:
-            # TODO:Jing, should find better way to configure for the choice of tf loss and time-only loss.
-            speech_pre, speech_lengths, *__ = self.frontend.forward_rawwav(speech_mix, speech_lengths)
+            # TODO:Jing, should find better way to configure for the choice
+            #  of tf loss and time-only loss.
+            speech_pre, speech_lengths, *__ = self.frontend.forward_rawwav(
+                speech_mix, speech_lengths
+            )
             speech_pre = torch.unbind(speech_pre, dim=1)
 
             # compute si-snr loss
-            si_snr_loss, perm = self._permutation_loss(speech_ref, speech_pre, self.si_snr_loss)
-            si_snr = - si_snr_loss
-            loss = si_snr_loss
-            stats = dict(
-                si_snr=si_snr.detach(),
-                loss=loss.detach()
+            si_snr_loss, perm = self._permutation_loss(
+                speech_ref, speech_pre, self.si_snr_loss
             )
+            si_snr = -si_snr_loss
+            loss = si_snr_loss
+            stats = dict(si_snr=si_snr.detach(), loss=loss.detach())
 
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
         return loss, stats, weight
-
 
     @staticmethod
     def tf_l2_loss(ref, inf):
@@ -161,7 +178,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         :param inf: (Batch, T, F)
         :return: (Batch)
         """
-        l1loss = torch.norm((ref - inf), p=2, dim=[1,2])
+        l1loss = torch.norm((ref - inf), p=2, dim=[1, 2])
 
         return l1loss
 
@@ -189,7 +206,9 @@ class ESPnetFrontendModel(AbsESPnetModel):
         s_target = (ref * inf).sum(dim=1, keepdims=True) * ref
         e_noise = inf - s_target
 
-        si_snr = 20 * torch.log10(torch.norm(s_target, p=2, dim=1) / torch.norm(e_noise, p=2, dim=1))
+        si_snr = 20 * torch.log10(
+            torch.norm(s_target, p=2, dim=1) / torch.norm(e_noise, p=2, dim=1)
+        )
         return -si_snr
 
     @staticmethod
@@ -210,8 +229,10 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 [criterion(ref[s], inf[t]) for s, t in enumerate(permutation)]
             ) / len(permutation)
 
-        losses = torch.stack([pair_loss(p) for p in permutations(range(num_spk))], dim=1)
-        if perm == None:
+        losses = torch.stack(
+            [pair_loss(p) for p in permutations(range(num_spk))], dim=1
+        )
+        if perm is None:
             loss, perm = torch.min(losses, dim=1)
         else:
             loss = losses[torch.arange(losses.shape[0]), perm]
@@ -220,10 +241,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         return loss.mean(), perm
 
     def collect_feats(
-            self,
-            speech_mix: torch.Tensor,
-            speech_mix_lengths: torch.Tensor,
-            **kwargs
+        self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor, **kwargs
     ) -> Dict[str, torch.Tensor]:
         # for data-parallel
         speech_mix = speech_mix[:, : speech_mix_lengths.max()]

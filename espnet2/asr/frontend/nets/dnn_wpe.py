@@ -58,6 +58,7 @@ class DNN_WPE(torch.nn.Module):
             data: (B, C, T, F)
             ilens: (B,)
         """
+
         def dereverberate(data, power, iterations, taps, delay, inverse_power):
             enhanced = data
             for i in range(iterations):
@@ -93,7 +94,12 @@ class DNN_WPE(torch.nn.Module):
 
         if self.num_spkr == 1:
             enhanced = dereverberate(
-                data, power[0], self.iterations, self.taps, self.delay, self.inverse_power
+                data,
+                power[0],
+                self.iterations,
+                self.taps,
+                self.delay,
+                self.inverse_power,
             )
             enhanced.masked_fill_(make_pad_mask(ilens, enhanced.real), 0)
             # (B, F, C, T) -> (B, T, C, F)
@@ -105,8 +111,14 @@ class DNN_WPE(torch.nn.Module):
             # multi-speaker case: (mask_speech1, mask_speech2, ...)
             enhanced = [
                 dereverberate(
-                    data, power[spk], self.iterations, self.taps, self.delay, self.inverse_power
-                ) for spk in range(self.num_spkr)
+                    data,
+                    power[spk],
+                    self.iterations,
+                    self.taps,
+                    self.delay,
+                    self.inverse_power,
+                )
+                for spk in range(self.num_spkr)
             ]
             for enh in enhanced:
                 enh.masked_fill_(make_pad_mask(ilens, enh.real), 0)

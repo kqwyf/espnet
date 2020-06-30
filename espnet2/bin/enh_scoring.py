@@ -3,14 +3,12 @@ import logging
 import sys
 from typing import Union
 from typing import List
-from typing import Optional
 
 import configargparse
 from typeguard import check_argument_types
 from espnet.utils.cli_utils import get_commandline_args
 from espnet2.fileio.sound_scp import SoundScpReader
 from espnet2.fileio.datadir_writer import DatadirWriter
-from espnet2.utils.types import str_or_none
 import pypesq
 import pystoi
 import mir_eval
@@ -18,12 +16,12 @@ import numpy as np
 
 
 def scoring(
-        output_dir: str,
-        dtype: str,
-        log_level: Union[int, str],
-        key_file: str,
-        ref_scp: List[str],
-        inf_scp: List[str],
+    output_dir: str,
+    dtype: str,
+    log_level: Union[int, str],
+    key_file: str,
+    ref_scp: List[str],
+    inf_scp: List[str],
 ):
     assert check_argument_types()
 
@@ -36,8 +34,7 @@ def scoring(
     num_spk = len(ref_scp)
 
     keys = [
-        line.rstrip().split(maxsplit=1)[0]
-        for line in open(key_file, encoding="utf-8")
+        line.rstrip().split(maxsplit=1)[0] for line in open(key_file, encoding="utf-8")
     ]
 
     ref_readers = [SoundScpReader(f, dtype=dtype) for f in ref_scp]
@@ -57,17 +54,22 @@ def scoring(
             ref = np.array(ref_audios)
             inf = np.array(inf_audios)
 
-            sdr, sir, sar, perm = mir_eval.separation.bss_eval_sources(ref, inf, compute_permutation=True)
+            sdr, sir, sar, perm = mir_eval.separation.bss_eval_sources(
+                ref, inf, compute_permutation=True
+            )
 
             for i in range(num_spk):
-                stoi_score = pystoi.stoi(ref_audios[i], inf_audios[int(perm[i])], fs_sig=sample_rate)
-                pesq_score = pypesq.pesq(ref_audios[i], inf_audios[int(perm[i])], fs=sample_rate)
-                writer[f'STOI_spk{i + 1}'][key] = str(stoi_score)
-                writer[f'PESQ_spk{i + 1}'][key] = str(pesq_score)
-                writer[f'SDR_spk{i + 1}'][key] = str(sdr[i])
-                writer[f'SAR_spk{i + 1}'][key] = str(sar[i])
-                writer[f'SIR_spk{i + 1}'][key] = str(sir[i])
-
+                stoi_score = pystoi.stoi(
+                    ref_audios[i], inf_audios[int(perm[i])], fs_sig=sample_rate
+                )
+                pesq_score = pypesq.pesq(
+                    ref_audios[i], inf_audios[int(perm[i])], fs=sample_rate
+                )
+                writer[f"STOI_spk{i + 1}"][key] = str(stoi_score)
+                writer[f"PESQ_spk{i + 1}"][key] = str(pesq_score)
+                writer[f"SDR_spk{i + 1}"][key] = str(sdr[i])
+                writer[f"SAR_spk{i + 1}"][key] = str(sar[i])
+                writer[f"SIR_spk{i + 1}"][key] = str(sir[i])
 
 
 def get_parser():
@@ -99,16 +101,10 @@ def get_parser():
 
     group = parser.add_argument_group("Input data related")
     group.add_argument(
-        "--ref_scp",
-        type=str,
-        required=True,
-        action="append",
+        "--ref_scp", type=str, required=True, action="append",
     )
     group.add_argument(
-        "--inf_scp",
-        type=str,
-        required=True,
-        action="append",
+        "--inf_scp", type=str, required=True, action="append",
     )
     group.add_argument("--key_file", type=str)
 

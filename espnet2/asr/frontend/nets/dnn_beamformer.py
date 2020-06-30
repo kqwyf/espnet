@@ -48,7 +48,7 @@ class DNN_Beamformer(torch.nn.Module):
 
         self.nmask = bnmask
 
-        if beamformer_type not in ('mvdr', 'mpdr'):
+        if beamformer_type not in ("mvdr", "mpdr"):
             raise ValueError(
                 "Not supporting beamformer_type={}".format(beamformer_type)
             )
@@ -101,14 +101,16 @@ class DNN_Beamformer(torch.nn.Module):
             mask_speech, mask_noise = masks
 
             psd_speech = get_power_spectral_density_matrix(data, mask_speech)
-            if self.beamformer_type == 'mvdr':
+            if self.beamformer_type == "mvdr":
                 # psd of noise
                 psd_noise = get_power_spectral_density_matrix(data, mask_noise)
-            elif self.beamformer_type == 'mpdr':
+            elif self.beamformer_type == "mpdr":
                 # psd of observed speech
-                psd_noise = FC.einsum('...ct,...et->...ce', [data, data.conj()])
+                psd_noise = FC.einsum("...ct,...et->...ce", [data, data.conj()])
             else:
-                raise ValueError('Not supporting beamformer_type={}'.format(self.beamformer_type))
+                raise ValueError(
+                    "Not supporting beamformer_type={}".format(self.beamformer_type)
+                )
 
             enhanced, ws = apply_beamforming(data, ilens, psd_speech, psd_noise)
 
@@ -122,30 +124,32 @@ class DNN_Beamformer(torch.nn.Module):
             psd_speeches = [
                 get_power_spectral_density_matrix(data, mask) for mask in mask_speech
             ]
-            if self.beamformer_type == 'mvdr':
+            if self.beamformer_type == "mvdr":
                 # psd of noise
                 psd_noise = get_power_spectral_density_matrix(data, mask_noise)
-            elif self.beamformer_type == 'mpdr':
+            elif self.beamformer_type == "mpdr":
                 # psd of observed speech
-                psd_noise = FC.einsum('...ct,...et->...ce', [data, data.conj()])
+                psd_noise = FC.einsum("...ct,...et->...ce", [data, data.conj()])
             else:
-                raise ValueError('Not supporting beamformer_type={}'.format(self.beamformer_type))
+                raise ValueError(
+                    "Not supporting beamformer_type={}".format(self.beamformer_type)
+                )
 
             enhanced = []
             ws = []
             for i in range(self.nmask - 1):
                 psd_speech = psd_speeches.pop(i)
                 # treat all other speakers' psd_speech as noises
-                if self.beamformer_type == 'mvdr':
+                if self.beamformer_type == "mvdr":
                     enh, w = apply_beamforming(
                         data, ilens, psd_speech, sum(psd_speeches) + psd_noise
                     )
-                elif self.beamformer_type == 'mpdr':
-                    enh, w = apply_beamforming(
-                        data, ilens, psd_speech, psd_noise
-                    )
+                elif self.beamformer_type == "mpdr":
+                    enh, w = apply_beamforming(data, ilens, psd_speech, psd_noise)
                 else:
-                    raise ValueError('Not supporting beamformer_type={}'.format(self.beamformer_type))
+                    raise ValueError(
+                        "Not supporting beamformer_type={}".format(self.beamformer_type)
+                    )
                 psd_speeches.insert(i, psd_speech)
 
                 # (..., F, T) -> (..., T, F)

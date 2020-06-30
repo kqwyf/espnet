@@ -1,5 +1,4 @@
 import argparse
-import logging
 from typing import Callable
 from typing import Collection
 from typing import Dict
@@ -34,7 +33,6 @@ frontend_choices = ClassChoices(
 )
 
 
-
 class FrontendTask(AbsTask):
     # If you need more than one optimizers, change this value
     num_optimizers: int = 1
@@ -43,7 +41,6 @@ class FrontendTask(AbsTask):
         # --frontend and --frontend_conf
         frontend_choices,
     ]
-
 
     # If you need to modify train() or eval() procedures, change Trainer class here
     trainer = Trainer
@@ -86,7 +83,6 @@ class FrontendTask(AbsTask):
             help="Apply preprocessing to data or not",
         )
 
-
         for class_choices in cls.class_choices_list:
             # Append --<name> and --<name>_conf.
             # e.g. --encoder and --encoder_conf
@@ -94,7 +90,7 @@ class FrontendTask(AbsTask):
 
     @classmethod
     def build_collate_fn(
-            cls, args: argparse.Namespace
+        cls, args: argparse.Namespace
     ) -> Callable[
         [Collection[Tuple[str, Dict[str, np.ndarray]]]],
         Tuple[List[str], Dict[str, torch.Tensor]],
@@ -105,7 +101,7 @@ class FrontendTask(AbsTask):
 
     @classmethod
     def build_preprocess_fn(
-            cls, args: argparse.Namespace, train: bool
+        cls, args: argparse.Namespace, train: bool
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
         assert check_argument_types()
         retval = None
@@ -116,7 +112,8 @@ class FrontendTask(AbsTask):
     def required_data_names(cls, inference: bool = False) -> Tuple[str, ...]:
         if not inference:
 
-            # TODO: combining ref1 and ref2 into one data stream, maybe multi-channel format?
+            # TODO: combining ref1 and ref2 into one data stream,
+            #  maybe multi-channel format?
             retval = ("speech_mix", "speech_ref1", "speech_ref2")
         else:
             # Recognition mode
@@ -133,12 +130,10 @@ class FrontendTask(AbsTask):
     def build_model(cls, args: argparse.Namespace) -> ESPnetFrontendModel:
         assert check_argument_types()
 
-        frontend = frontend_choices.get_class(args.frontend)(** args.frontend_conf)
+        frontend = frontend_choices.get_class(args.frontend)(**args.frontend_conf)
 
         # 1. Build model
-        model = ESPnetFrontendModel(
-            frontend=frontend
-        )
+        model = ESPnetFrontendModel(frontend=frontend)
 
         # FIXME(kamo): Should be done in model?
         # 2. Initialize

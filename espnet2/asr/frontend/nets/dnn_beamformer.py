@@ -61,11 +61,7 @@ class DNN_Beamformer(torch.nn.Module):
         self.num_spk = num_spk
         self.nmask = bnmask
 
-<<<<<<< HEAD
         if beamformer_type not in ("mvdr", "mpdr", "wpd"):
-=======
-        if beamformer_type not in ("mvdr", "mpdr"):
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
             raise ValueError(
                 "Not supporting beamformer_type={}".format(beamformer_type)
             )
@@ -156,7 +152,6 @@ class DNN_Beamformer(torch.nn.Module):
             psd_speech = get_power_spectral_density_matrix(data, mask_speech)
             if self.beamformer_type == "mvdr":
                 # psd of noise
-<<<<<<< HEAD
                 psd_n = get_power_spectral_density_matrix(data, mask_noise)
             elif self.beamformer_type == "mpdr":
                 # psd of observed signal
@@ -171,12 +166,6 @@ class DNN_Beamformer(torch.nn.Module):
                 psd_n = get_covariances(
                     data, inverse_power, self.bdelay, self.btaps, get_vector=False
                 )
-=======
-                psd_noise = get_power_spectral_density_matrix(data, mask_noise)
-            elif self.beamformer_type == "mpdr":
-                # psd of observed speech
-                psd_noise = FC.einsum("...ct,...et->...ce", [data, data.conj()])
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
             else:
                 raise ValueError(
                     "Not supporting beamformer_type={}".format(self.beamformer_type)
@@ -203,7 +192,6 @@ class DNN_Beamformer(torch.nn.Module):
             ]
             if self.beamformer_type == "mvdr":
                 # psd of noise
-<<<<<<< HEAD
                 if mask_noise is not None:
                     psd_n = get_power_spectral_density_matrix(data, mask_noise)
             elif self.beamformer_type == "mpdr":
@@ -225,12 +213,6 @@ class DNN_Beamformer(torch.nn.Module):
                     )
                     for inv_ps in inverse_poweres
                 ]
-=======
-                psd_noise = get_power_spectral_density_matrix(data, mask_noise)
-            elif self.beamformer_type == "mpdr":
-                # psd of observed speech
-                psd_noise = FC.einsum("...ct,...et->...ce", [data, data.conj()])
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
             else:
                 raise ValueError(
                     "Not supporting beamformer_type={}".format(self.beamformer_type)
@@ -242,18 +224,14 @@ class DNN_Beamformer(torch.nn.Module):
                 psd_speech = psd_speeches.pop(i)
                 # treat all other speakers' psd_speech as noises
                 if self.beamformer_type == "mvdr":
-<<<<<<< HEAD
                     psd_noise = sum(psd_speeches)
                     if mask_noise is not None:
                         psd_noise = psd_noise + psd_n
 
-=======
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
                     enh, w = apply_beamforming(
                         data, ilens, psd_speech, psd_noise, self.beamformer_type
                     )
                 elif self.beamformer_type == "mpdr":
-<<<<<<< HEAD
                     enh, w = apply_beamforming(
                         data, ilens, psd_speech, psd_n, self.beamformer_type
                     )
@@ -261,9 +239,6 @@ class DNN_Beamformer(torch.nn.Module):
                     enh, w = apply_beamforming(
                         data, ilens, psd_speech, psd_n[i], self.beamformer_type
                     )
-=======
-                    enh, w = apply_beamforming(data, ilens, psd_speech, psd_noise)
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
                 else:
                     raise ValueError(
                         "Not supporting beamformer_type={}".format(self.beamformer_type)

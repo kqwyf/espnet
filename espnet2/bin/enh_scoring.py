@@ -22,6 +22,7 @@ def scoring(
     key_file: str,
     ref_scp: List[str],
     inf_scp: List[str],
+    ref_channel: int,
 ):
     assert check_argument_types()
 
@@ -53,6 +54,16 @@ def scoring(
             inf_audios = [inf_reader[key][1] for inf_reader in inf_readers]
             ref = np.array(ref_audios)
             inf = np.array(inf_audios)
+            if ref.ndim > inf.ndim:
+                # multi-channel reference and single-channel output
+                ref = ref[..., ref_channel]
+                assert ref.shape == inf.shape, (ref.shape, inf.shape)
+            elif ref.ndim < inf.ndim:
+                # single-channel reference and multi-channel output
+                raise ValueError(
+                    "Reference must be multi-channel when the \
+                    network output is multi-channel."
+                )
 
             sdr, sir, sar, perm = mir_eval.separation.bss_eval_sources(
                 ref, inf, compute_permutation=True
@@ -107,6 +118,7 @@ def get_parser():
         "--inf_scp", type=str, required=True, action="append",
     )
     group.add_argument("--key_file", type=str)
+    group.add_argument("--ref_channel", type=int, default=-1)
 
     return parser
 

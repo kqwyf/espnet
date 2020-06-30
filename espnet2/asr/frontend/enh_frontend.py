@@ -25,11 +25,7 @@ class EnhFrontend(AbsFrontend):
     def __init__(
         self,
         enh_type: str = "tf_maksing",
-<<<<<<< HEAD
         mask_type: str = "IAM",
-=======
-        mask_type="IRM",
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
         fs: int = 16000,
         tf_factor: float = 0.5,
         enh_conf: Dict = None,

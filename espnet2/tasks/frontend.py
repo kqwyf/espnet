@@ -34,6 +34,7 @@ frontend_choices = ClassChoices(
 
 MAX_REFERENCE_NUM = 100
 
+
 class FrontendTask(AbsTask):
     # If you need more than one optimizers, change this value
     num_optimizers: int = 1
@@ -112,15 +113,8 @@ class FrontendTask(AbsTask):
     @classmethod
     def required_data_names(cls, inference: bool = False) -> Tuple[str, ...]:
         if not inference:
-
-<<<<<<< HEAD
             # TODO: combining ref1 and ref2 into one data stream, maybe multi-channel format?
             retval = ("speech_mix", "speech_ref1")
-=======
-            # TODO: combining ref1 and ref2 into one data stream,
-            #  maybe multi-channel format?
-            retval = ("speech_mix", "speech_ref1", "speech_ref2")
->>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
         else:
             # Recognition mode
             retval = ("speech_mix",)

@@ -71,10 +71,10 @@ def scoring(
 
             for i in range(num_spk):
                 stoi_score = pystoi.stoi(
-                    ref_audios[i], inf_audios[int(perm[i])], fs_sig=sample_rate
+                    ref[i], inf[int(perm[i])], fs_sig=sample_rate
                 )
                 pesq_score = pypesq.pesq(
-                    ref_audios[i], inf_audios[int(perm[i])], fs=sample_rate
+                    ref[i], inf[int(perm[i])], fs=sample_rate
                 )
                 writer[f"STOI_spk{i + 1}"][key] = str(stoi_score)
                 writer[f"PESQ_spk{i + 1}"][key] = str(pesq_score)
@@ -118,7 +118,7 @@ def get_parser():
         "--inf_scp", type=str, required=True, action="append",
     )
     group.add_argument("--key_file", type=str)
-    group.add_argument("--ref_channel", type=int, default=-1)
+    group.add_argument("--ref_channel", type=int, default=0)
 
     return parser
 

@@ -12,31 +12,17 @@ import torch
 from typeguard import check_argument_types
 from typeguard import check_return_type
 
-from espnet2.asr.ctc import CTC
-from espnet2.asr.decoder.abs_decoder import AbsDecoder
-from espnet2.asr.decoder.rnn_decoder import RNNDecoder
-from espnet2.asr.decoder.transformer_decoder import TransformerDecoder
-from espnet2.asr.encoder.abs_encoder import AbsEncoder
-from espnet2.asr.encoder.rnn_encoder import RNNEncoder
-from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
-from espnet2.asr.encoder.vgg_rnn_encoder import VGGRNNEncoder
+
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet2.asr.frontend.enh_frontend import EnhFrontend
 from espnet2.asr.frontend.espnet_model import ESPnetFrontendModel
-from espnet2.asr.specaug.abs_specaug import AbsSpecAug
-from espnet2.asr.specaug.specaug import SpecAug
-from espnet2.layers.abs_normalize import AbsNormalize
-from espnet2.layers.global_mvn import GlobalMVN
-from espnet2.layers.utterance_mvn import UtteranceMVN
 from espnet2.tasks.abs_task import AbsTask
 from espnet2.torch_utils.initialize import initialize
 from espnet2.train.class_choices import ClassChoices
 from espnet2.train.collate_fn import CommonCollateFn
-from espnet2.train.preprocessor import CommonPreprocessor
 from espnet2.train.trainer import Trainer
 from espnet2.utils.get_default_kwargs import get_default_kwargs
 from espnet2.utils.nested_dict_action import NestedDictAction
-from espnet2.utils.types import int_or_none
 from espnet2.utils.types import str2bool
 from espnet2.utils.types import str_or_none
 
@@ -47,27 +33,7 @@ frontend_choices = ClassChoices(
     default="enh",
 )
 
-# normalize_choices = ClassChoices(
-#     "normalize",
-#     classes=dict(global_mvn=GlobalMVN, utterance_mvn=UtteranceMVN, ),
-#     type_check=AbsNormalize,
-#     default="utterance_mvn",
-#     optional=True,
-# )
-# encoder_choices = ClassChoices(
-#     "encoder",
-#     classes=dict(
-#         transformer=TransformerEncoder, vgg_rnn=VGGRNNEncoder, rnn=RNNEncoder,
-#     ),
-#     type_check=AbsEncoder,
-#     default="rnn",
-# )
-# decoder_choices = ClassChoices(
-#     "decoder",
-#     classes=dict(transformer=TransformerDecoder, rnn=RNNDecoder),
-#     type_check=AbsDecoder,
-#     default="rnn",
-# )
+MAX_REFERENCE_NUM = 100
 
 
 class FrontendTask(AbsTask):
@@ -78,7 +44,6 @@ class FrontendTask(AbsTask):
         # --frontend and --frontend_conf
         frontend_choices,
     ]
-
 
     # If you need to modify train() or eval() procedures, change Trainer class here
     trainer = Trainer
@@ -121,7 +86,6 @@ class FrontendTask(AbsTask):
             help="Apply preprocessing to data or not",
         )
 
-
         for class_choices in cls.class_choices_list:
             # Append --<name> and --<name>_conf.
             # e.g. --encoder and --encoder_conf
@@ -129,7 +93,7 @@ class FrontendTask(AbsTask):
 
     @classmethod
     def build_collate_fn(
-            cls, args: argparse.Namespace
+        cls, args: argparse.Namespace
     ) -> Callable[
         [Collection[Tuple[str, Dict[str, np.ndarray]]]],
         Tuple[List[str], Dict[str, torch.Tensor]],
@@ -140,7 +104,7 @@ class FrontendTask(AbsTask):
 
     @classmethod
     def build_preprocess_fn(
-            cls, args: argparse.Namespace, train: bool
+        cls, args: argparse.Namespace, train: bool
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
         assert check_argument_types()
         retval = None
@@ -152,7 +116,7 @@ class FrontendTask(AbsTask):
         if not inference:
 
             # TODO: combining ref1 and ref2 into one data stream, maybe multi-channel format?
-            retval = ("speech_mix", "speech_ref1", "speech_ref2")
+            retval = ("speech_mix", "speech_ref1")
         else:
             # Recognition mode
             retval = ("speech_mix",)
@@ -160,7 +124,9 @@ class FrontendTask(AbsTask):
 
     @classmethod
     def optional_data_names(cls, inference: bool = False) -> Tuple[str, ...]:
-        retval = ()
+        retval = ["dereverb_ref"]
+        retval += ["speech_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)]
+        retval += ["noise_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
         assert check_return_type(retval)
         return retval
 
@@ -168,12 +134,10 @@ class FrontendTask(AbsTask):
     def build_model(cls, args: argparse.Namespace) -> ESPnetFrontendModel:
         assert check_argument_types()
 
-        frontend = frontend_choices.get_class(args.frontend)(** args.frontend_conf)
+        frontend = frontend_choices.get_class(args.frontend)(**args.frontend_conf)
 
         # 1. Build model
-        model = ESPnetFrontendModel(
-            frontend=frontend
-        )
+        model = ESPnetFrontendModel(frontend=frontend)
 
         # FIXME(kamo): Should be done in model?
         # 2. Initialize

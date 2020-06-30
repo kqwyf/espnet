@@ -13,14 +13,14 @@ import torchaudio
 
 class Stft(torch.nn.Module, InversibleInterface):
     def __init__(
-            self,
-            n_fft: int = 512,
-            win_length: Union[int, None] = 512,
-            hop_length: int = 128,
-            center: bool = True,
-            pad_mode: str = "reflect",
-            normalized: bool = False,
-            onesided: bool = True,
+        self,
+        n_fft: int = 512,
+        win_length: Union[int, None] = 512,
+        hop_length: int = 128,
+        center: bool = True,
+        pad_mode: str = "reflect",
+        normalized: bool = False,
+        onesided: bool = True,
     ):
         assert check_argument_types()
         super().__init__()
@@ -47,7 +47,7 @@ class Stft(torch.nn.Module, InversibleInterface):
         )
 
     def forward(
-            self, input: torch.Tensor, ilens: torch.Tensor = None
+        self, input: torch.Tensor, ilens: torch.Tensor = None
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """STFT forward function.
 
@@ -101,7 +101,7 @@ class Stft(torch.nn.Module, InversibleInterface):
         return output, olens
 
     def inverse(
-            self, input: Union[torch.Tensor, ComplexTensor], ilens: torch.Tensor = None
+        self, input: Union[torch.Tensor, ComplexTensor], ilens: torch.Tensor = None
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
 
@@ -114,14 +114,16 @@ class Stft(torch.nn.Module, InversibleInterface):
         assert input.shape[-1] == 2
         input = input.transpose(1, 2)
 
-        wavs = torchaudio.functional.istft(input,
-                                           n_fft=self.n_fft,
-                                           hop_length=self.hop_length,
-                                           win_length=self.win_length,
-                                           center=self.center,
-                                           pad_mode=self.pad_mode,
-                                           normalized=self.normalized,
-                                           onesided=self.onesided,
-                                           length=ilens.max())
+        wavs = torchaudio.functional.istft(
+            input,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            win_length=self.win_length,
+            center=self.center,
+            pad_mode=self.pad_mode,
+            normalized=self.normalized,
+            onesided=self.onesided,
+            length=ilens.max(),
+        )
 
         return wavs, ilens

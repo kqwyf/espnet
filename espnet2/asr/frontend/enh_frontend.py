@@ -3,7 +3,6 @@ from typing import Union
 from typing import Dict
 
 import torch
-from torch_complex.tensor import ComplexTensor
 from typeguard import check_argument_types
 
 from espnet2.asr.frontend.nets.beamformer_net import BeamformerNet
@@ -14,9 +13,7 @@ from espnet2.asr.frontend.abs_frontend import AbsFrontend
 
 frontend_choices = ClassChoices(
     name="enh_model",
-    classes=dict(tf_masking=TFMaskingNet,
-                 tasnet=TasNet,
-                 wpe_beamformer=BeamformerNet),
+    classes=dict(tf_masking=TFMaskingNet, tasnet=TasNet, wpe_beamformer=BeamformerNet),
     type_check=torch.nn.Module,
     default="tf_masking",
 )
@@ -29,12 +26,12 @@ class EnhFrontend(AbsFrontend):
     """
 
     def __init__(
-            self,
-            enh_type: str = 'tf_maksing',
-            mask_type="IRM",
-            fs: int = 16000,
-            tf_factor: float = 0.5,
-            enh_conf: Dict = None,
+        self,
+        enh_type: str = "tf_maksing",
+        mask_type: str = "IAM",
+        fs: int = 16000,
+        tf_factor: float = 0.5,
+        enh_conf: Dict = None,
     ):
         assert check_argument_types()
         super().__init__()
@@ -46,36 +43,41 @@ class EnhFrontend(AbsFrontend):
         self.mask_type = mask_type
         self.enh_model = frontend_choices.get_class(enh_type)(**enh_conf)
         self.num_spk = self.enh_model.num_spk
+        self.num_noise_type = getattr(self.enh_model, "num_noise_type", 1)
         self.stft = self.enh_model.stft
+        # for multi-channel signal
+        self.ref_channel = getattr(self.enh_model, "ref_channel", -1)
 
     def output_size(self) -> int:
         return self.bins
 
     def forward_rawwav(
-            self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor
+        self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor
     ):
-        predicted_wavs, ilens, masks = self.enh_model.forward_rawwav(speech_mix, speech_mix_lengths)
+        predicted_wavs, ilens, masks = self.enh_model.forward_rawwav(
+            speech_mix, speech_mix_lengths
+        )
 
         return predicted_wavs, ilens, masks
 
-    def forward(
-            self, input: torch.Tensor, input_lengths: torch.Tensor
-    ):
+    def forward(self, input: torch.Tensor, input_lengths: torch.Tensor):
         """
         Args:
             input (torch.Tensor): raw wave input [batch, samples]
             input_lengths (torch.Tensor): [batch]
 
         Returns:
-            enhanced spectrum: ComplexTensor, or List[ComplexTensor, ComplexTensor]
-                or predicted magnitude spectrum: torch.Tensor or List[torch.Tensor]
+            enhanced spectrum, or predicted magnitude spectrum:
+                torch.Tensor or List[torch.Tensor]
             output lengths
             predcited masks: OrderedDict[
-                'spk1': List[ComplexTensor(Batch, Frames, Channel, Freq)],
-                'spk2': List[ComplexTensor(Batch, Frames, Channel, Freq)],
+                'spk1': torch.Tensor(Batch, Frames, Channel, Freq),
+                'spk2': torch.Tensor(Batch, Frames, Channel, Freq),
                 ...
-                'spkn': List[ComplexTensor(Batch, Frames, Channel, Freq)],
-                'noise': List[ComplexTensor(Batch, Frames, Channel, Freq)],
+                'spkM': torch.Tensor(Batch, Frames, Channel, Freq),
+                'noise1': torch.Tensor(Batch, Frames, Channel, Freq),
+                ...
+                'noiseN': torch.Tensor(Batch, Frames, Channel, Freq),
             ]
         """
         # 1. Domain-conversion: e.g. Stft: time -> time-freq

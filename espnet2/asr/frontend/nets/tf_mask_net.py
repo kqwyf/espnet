@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import Tuple
 
 import torch
@@ -15,28 +16,24 @@ class TFMaskingNet(torch.nn.Module):
     """
 
     def __init__(
-            self,
-            n_fft: int = 512,
-            win_length: int = None,
-            hop_length: int = 128,
-            rnn_type: str = 'blstm',
-            layer: int = 3,
-            unit: int = 512,
-            dropout: float = 0.0,
-            num_spk: int = 2,
-            none_linear: str = "sigmoid",
-            utt_mvn: bool = False,
+        self,
+        n_fft: int = 512,
+        win_length: int = None,
+        hop_length: int = 128,
+        rnn_type: str = "blstm",
+        layer: int = 3,
+        unit: int = 512,
+        dropout: float = 0.0,
+        num_spk: int = 2,
+        none_linear: str = "sigmoid",
+        utt_mvn: bool = False,
     ):
         super(TFMaskingNet, self).__init__()
 
         self.num_spk = num_spk
         self.num_bin = n_fft // 2 + 1
 
-        self.stft = Stft(
-            n_fft=n_fft,
-            win_length=win_length,
-            hop_length=hop_length,
-        )
+        self.stft = Stft(n_fft=n_fft, win_length=win_length, hop_length=hop_length,)
 
         if utt_mvn:
             self.utt_mvn = UtteranceMVN(norm_means=True, norm_vars=True)
@@ -50,19 +47,16 @@ class TFMaskingNet(torch.nn.Module):
             cdim=unit,
             hdim=unit,
             dropout=dropout,
-            typ=rnn_type)
+            typ=rnn_type,
+        )
 
         self.linear = torch.nn.ModuleList(
-            [
-                torch.nn.Linear(unit, self.num_bin)
-                for _ in range(self.num_spk)
-            ]
+            [torch.nn.Linear(unit, self.num_bin) for _ in range(self.num_spk)]
         )
         self.none_linear = {
-            "sigmoid": torch.sigmoid,
-            "relu": torch.relu,
-            "tanh": torch.tanh,
-            "softmax": torch.softmax
+            "sigmoid": torch.nn.Sigmoid(),
+            "relu": torch.nn.ReLU(),
+            "tanh": torch.nn.Tanh(),
         }[none_linear]
 
     def forward(self, input: torch.Tensor, ilens: torch.Tensor):
@@ -74,7 +68,12 @@ class TFMaskingNet(torch.nn.Module):
         Returns:
             separated (list[ComplexTensor]): [(B, T, F), ...]
             ilens (torch.Tensor): (B,)
-            masks (list[torch.Tensor]): [(B, T, F), ...]
+            predcited masks: OrderedDict[
+                'spk1': torch.Tensor(Batch, Frames, Channel, Freq),
+                'spk2': torch.Tensor(Batch, Frames, Channel, Freq),
+                ...
+                'spkn': torch.Tensor(Batch, Frames, Channel, Freq),
+            ]
         """
 
         # wave -> stft -> magnitude specturm
@@ -91,7 +90,7 @@ class TFMaskingNet(torch.nn.Module):
 
         # predict masks for each speaker
         x, flens, _ = self.rnn(input_magnitude_mvn, flens)
-        masks = []
+        masks = OrderedDict()
         for linear in self.linear:
             y = linear(x)
             y = self.none_linear(y)
@@ -102,10 +101,13 @@ class TFMaskingNet(torch.nn.Module):
 
         predicted_spectrums = [pm * input_phase for pm in predict_magnitude]
 
+        masks = OrderedDict(
+            zip(["spk{}".format(i + 1) for i in range(len(masks))], masks)
+        )
         return predicted_spectrums, flens, masks
 
     def forward_rawwav(
-            self, input: torch.Tensor, ilens: torch.Tensor
+        self, input: torch.Tensor, ilens: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -113,9 +115,14 @@ class TFMaskingNet(torch.nn.Module):
             ilens (torch.Tensor): input lengths [Batch]
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]:
             predcited speech [Batch, num_speaker, sample]
             output lengths
+            predcited masks: OrderedDict[
+                'spk1': torch.Tensor(Batch, Frames, Channel, Freq),
+                'spk2': torch.Tensor(Batch, Frames, Channel, Freq),
+                ...
+                'spkn': torch.Tensor(Batch, Frames, Channel, Freq),
+            ]
         """
 
         # predict spectrum for each speaker

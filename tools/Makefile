@@ -6,7 +6,7 @@ PYTHON :=
 PYTHON_VERSION := 3.7.3
 CUPY_VERSION := 6.0.0
 CUDA_VERSION := 10.0
-# PyTorch version: 0.4.1, 1.0.0, 1.0.1, 1.1.0, 1.2.0, 1.3.0, 1.3.1, 1.4.0
+# PyTorch version: 0.4.1, 1.0.0, 1.0.1, 1.1.0, 1.2.0, 1.3.0, 1.3.1, 1.4.0, 1.5.0, 1.5.1
 TH_VERSION := 1.0.1
 # Use a prebuild Kaldi to omit the installation
 KALDI :=
@@ -36,7 +36,7 @@ kaldi.done:
 	touch kaldi.done
 else
 kaldi.done:
-	test -d kaldi || git --depth 1 clone https://github.com/kaldi-asr/kaldi.git
+	test -d kaldi || git clone --depth 1 https://github.com/kaldi-asr/kaldi.git
 	cd kaldi/tools; $(MAKE) all
 	cd kaldi/src; ./configure --shared --use-cuda=no; $(MAKE) depend; $(MAKE) all
 	touch kaldi.done

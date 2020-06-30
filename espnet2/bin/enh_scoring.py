@@ -3,14 +3,12 @@ import logging
 import sys
 from typing import Union
 from typing import List
-from typing import Optional
 
 import configargparse
 from typeguard import check_argument_types
 from espnet.utils.cli_utils import get_commandline_args
 from espnet2.fileio.sound_scp import SoundScpReader
 from espnet2.fileio.datadir_writer import DatadirWriter
-from espnet2.utils.types import str_or_none
 import pypesq
 import pystoi
 import mir_eval

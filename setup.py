@@ -17,6 +17,7 @@ requirements = {
         "pillow>=6.1.0",
         "editdistance==0.5.2",
         "numba==0.49",
+        "gdown",
         # DNN related
         # 'torch==1.0.1',  # Installation from anaconda is recommended for PyTorch
         "chainer==6.0.0",
@@ -51,6 +52,7 @@ requirements = {
         "pytorch_wpe",
         "pypesq>=1.2.4",
         "mir-eval>=0.6",
+        "torchaudio>=0.4",
     ],
     "setup": ["numpy", "pytest-runner"],
     "test": [

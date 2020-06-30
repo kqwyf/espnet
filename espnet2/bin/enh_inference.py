@@ -55,7 +55,6 @@ def inference(
     set_all_random_seed(seed)
 
     # 2. Build Enh model
-    scorers = {}
     enh_model, enh_train_args = FrontendTask.build_model_from_file(
         enh_train_config, enh_model_file, device
     )
@@ -96,7 +95,8 @@ def inference(
             waves, _, _ = enh_model.frontend.forward_rawwav(**batch)
             assert len(waves[0]) == batch_size, len(waves[0])
 
-        # FIXME(Chenda): will be incorrect when batch size is not 1 or multi-channel case
+        # FIXME(Chenda): will be incorrect when
+        #  batch size is not 1 or multi-channel case
         waves = [w.T.cpu().numpy() for w in waves]
         for (i, w) in enumerate(waves):
             writers[i][keys[0]] = fs, w

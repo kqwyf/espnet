@@ -16,15 +16,18 @@ def overlap_and_add(signal, frame_step):
         output_size = (frames - 1) * frame_step + frame_length
 
     Args:
-        signal: A [..., frames, frame_length] Tensor. All dimensions may be unknown, and rank must be at least 2.
-        frame_step: An integer denoting overlap offsets. Must be less than or equal to frame_length.
+        signal: A [..., frames, frame_length] Tensor.
+        All dimensions may be unknown, and rank must be at least 2.
+        frame_step: An integer denoting overlap offsets. Must be
+        less than or equal to frame_length.
 
     Returns:
-        A Tensor with shape [..., output_size] containing the overlap-added frames of signal's inner-most two dimensions.
+        A Tensor with shape [..., output_size] containing the
+        overlap-added frames of signal's inner-most two dimensions.
         output_size = (frames - 1) * frame_step + frame_length
 
     Based on https://github.com/tensorflow/tensorflow/blob/r1.12/tensorflow/contrib/signal/python/ops/reconstruction_ops.py
-    """
+    """  # noqa
     outer_dimensions = signal.size()[:-2]
     frames, frame_length = signal.size()[-2:]
 

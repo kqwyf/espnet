@@ -1,5 +1,3 @@
-from typing import Tuple
-from typing import Union
 from typing import Dict
 
 import torch
@@ -20,15 +18,18 @@ frontend_choices = ClassChoices(
 
 
 class EnhFrontend(AbsFrontend):
-    """Speech separation frontend 
-
-    STFT -> T-F masking -> [STFT_0, ... , STFT_S]
+    """
+        Speech separation frontend
     """
 
     def __init__(
         self,
         enh_type: str = "tf_maksing",
+<<<<<<< HEAD
         mask_type: str = "IAM",
+=======
+        mask_type="IRM",
+>>>>>>> fdfdd45d7a014e7787d015ed973652ff4edd0b51
         fs: int = 16000,
         tf_factor: float = 0.5,
         enh_conf: Dict = None,
@@ -80,7 +81,6 @@ class EnhFrontend(AbsFrontend):
                 'noiseN': torch.Tensor(Batch, Frames, Channel, Freq),
             ]
         """
-        # 1. Domain-conversion: e.g. Stft: time -> time-freq
 
         predicted_spectrums, flens, masks = self.enh_model(input, input_lengths)
 

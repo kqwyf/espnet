@@ -1,8 +1,6 @@
 from typing import Dict
-from typing import List
 from typing import Optional
 from typing import Tuple
-from typing import Union
 from itertools import permutations
 
 import torch
@@ -16,7 +14,7 @@ from functools import reduce
 
 
 class ESPnetFrontendModel(AbsESPnetModel):
-    """CTC-attention hybrid Encoder-Decoder model"""
+    """Speech enhancement or separation Frontend model"""
 
     def __init__(
         self, frontend: Optional[AbsFrontend],
@@ -67,6 +65,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
             elif mask_type == "PSM" or mask_type == "NPSM":
                 phase_r = r / (abs(r) + eps)
                 phase_mix = mix_spec / (abs(mix_spec) + eps)
+                # cos(a - b) = cos(a)*cos(b) + sin(a)*sin(b)
                 cos_theta = (
                     phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
                 )
@@ -143,12 +142,12 @@ class ESPnetFrontendModel(AbsESPnetModel):
             spectrum_ref = [
                 ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref
             ]
-            sepctrum_mix = self.frontend.stft(speech_mix)[0]
-            sepctrum_mix = ComplexTensor(sepctrum_mix[..., 0], sepctrum_mix[..., 1])
+            spectrum_mix = self.frontend.stft(speech_mix)[0]
+            spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
 
             # prepare ideal masks
             mask_ref = self._create_mask_label(
-                sepctrum_mix, spectrum_ref, mask_type=self.mask_type
+                spectrum_mix, spectrum_ref, mask_type=self.mask_type
             )
 
             if dereverb_speech_ref is not None:
@@ -158,7 +157,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 )
                 # ComplexTensor(B, T, F) or ComplexTensor(B, T, C, F)
                 dereverb_mask_ref = self._create_mask_label(
-                    sepctrum_mix, [dereverb_spectrum_ref], mask_type=self.mask_type
+                    spectrum_mix, [dereverb_spectrum_ref], mask_type=self.mask_type
                 )[0]
 
             if noise_ref is not None:
@@ -168,7 +167,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
                     ComplexTensor(nr[..., 0], nr[..., 1]) for nr in noise_spectrum_ref
                 ]
                 noise_mask_ref = self._create_mask_label(
-                    sepctrum_mix, noise_spectrum_ref, mask_type=self.mask_type
+                    spectrum_mix, noise_spectrum_ref, mask_type=self.mask_type
                 )
 
             # predict separated speech and masks
@@ -176,6 +175,8 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 speech_mix, speech_lengths
             )
 
+            # TODO:Chenda, Shall we add options for computing loss on
+            #  the masked spectrum?
             # compute TF masking loss
             if mask_pre is None:
                 # compute loss on magnitude spectrum instead

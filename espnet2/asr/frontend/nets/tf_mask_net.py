@@ -6,8 +6,6 @@ from espnet.nets.pytorch_backend.rnn.encoders import RNN
 from espnet2.layers.stft import Stft
 from espnet2.layers.utterance_mvn import UtteranceMVN
 from torch_complex.tensor import ComplexTensor
-import torchaudio
-from espnet2.train.class_choices import ClassChoices
 
 
 class TFMaskingNet(torch.nn.Module):

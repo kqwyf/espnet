@@ -22,18 +22,18 @@ from espnet2.utils.types import str_or_none
 
 
 def inference(
-        output_dir: str,
-        batch_size: int,
-        dtype: str,
-        ngpu: int,
-        seed: int,
-        num_workers: int,
-        log_level: Union[int, str],
-        data_path_and_name_and_type: Sequence[Tuple[str, str, str]],
-        key_file: Optional[str],
-        enh_train_config: str,
-        enh_model_file: str,
-        allow_variable_data_keys: bool,
+    output_dir: str,
+    batch_size: int,
+    dtype: str,
+    ngpu: int,
+    seed: int,
+    num_workers: int,
+    log_level: Union[int, str],
+    data_path_and_name_and_type: Sequence[Tuple[str, str, str]],
+    key_file: Optional[str],
+    enh_train_config: str,
+    enh_model_file: str,
+    allow_variable_data_keys: bool,
 ):
     assert check_argument_types()
     if batch_size > 1:
@@ -79,7 +79,9 @@ def inference(
 
     writers = []
     for i in range(num_spk):
-        writers.append(SoundScpWriter(f"{output_dir}/wavs/{i + 1}", f"{output_dir}/spk{i + 1}.scp"))
+        writers.append(
+            SoundScpWriter(f"{output_dir}/wavs/{i + 1}", f"{output_dir}/spk{i + 1}.scp")
+        )
 
     for keys, batch in loader:
         assert isinstance(batch, dict), type(batch)
@@ -91,8 +93,8 @@ def inference(
             # a. To device
             batch = to_device(batch, device)
             # b. Forward Enhancement Frontend
-            waves, _ , _ = enh_model.frontend.forward_rawwav(**batch)
-            assert len(waves[0]) == batch_size, len(waves)
+            waves, _, _ = enh_model.frontend.forward_rawwav(**batch)
+            assert len(waves[0]) == batch_size, len(waves[0])
 
         # FIXME(Chenda): will be incorrect when batch size is not 1 or multi-channel case
         waves = [w.T.cpu().numpy() for w in waves]

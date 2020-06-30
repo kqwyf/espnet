@@ -19,8 +19,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
     """CTC-attention hybrid Encoder-Decoder model"""
 
     def __init__(
-            self,
-            frontend: Optional[AbsFrontend],
+        self, frontend: Optional[AbsFrontend],
     ):
         assert check_argument_types()
 
@@ -43,7 +42,14 @@ class ESPnetFrontendModel(AbsESPnetModel):
         :return: [Tensor(B, T, F), ...] or [ComplexTensor(B, T, F), ...]
         """
 
-        assert mask_type in ["IBM", "IRM", "IAM", "PSM", "NPSM", "ICM"], f"mask type {mask_type} not supported"
+        assert mask_type in [
+            "IBM",
+            "IRM",
+            "IAM",
+            "PSM",
+            "NPSM",
+            "ICM",
+        ], f"mask type {mask_type} not supported"
         eps = 10e-8
         mask_label = []
         for r in ref_spec:
@@ -61,9 +67,15 @@ class ESPnetFrontendModel(AbsESPnetModel):
             elif mask_type == "PSM" or mask_type == "NPSM":
                 phase_r = r / (abs(r) + eps)
                 phase_mix = mix_spec / (abs(mix_spec) + eps)
-                cos_theta = phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
+                cos_theta = (
+                    phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
+                )
                 mask = (abs(r) / (abs(mix_spec) + eps)) * cos_theta
-                mask = mask.clamp(min=0, max=1) if mask_label == "NPSM" else mask.clamp(min=-1, max=1)
+                mask = (
+                    mask.clamp(min=0, max=1)
+                    if mask_label == "NPSM"
+                    else mask.clamp(min=-1, max=1)
+                )
             elif mask_type == "ICM":
                 mask = r / (mix_spec + eps)
                 mask.real = mask.real.clamp(min=-1, max=1)
@@ -73,10 +85,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         return mask_label
 
     def forward(
-            self,
-            speech_mix: torch.Tensor,
-            speech_mix_lengths: torch.Tensor,
-            **kwargs
+        self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor, **kwargs
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
         """Frontend + Encoder + Decoder + Calc loss
 
@@ -87,15 +96,15 @@ class ESPnetFrontendModel(AbsESPnetModel):
         """
         # clean speech signal of each speaker
         speech_ref = [
-            kwargs['speech_ref{}'.format(spk + 1)] for spk in range(self.num_spk)
+            kwargs["speech_ref{}".format(spk + 1)] for spk in range(self.num_spk)
         ]
         # (Batch, num_speaker, samples) or (Batch, num_speaker, samples, channels)
         speech_ref = torch.stack(speech_ref, dim=1)
 
-        if 'noise_ref1' in kwargs:
+        if "noise_ref1" in kwargs:
             # noise signal (optional, required when using frontend models with beamformering)
             noise_ref = [
-                kwargs['noise_ref{}'.format(n + 1)] for n in range(self.num_noise_type)
+                kwargs["noise_ref{}".format(n + 1)] for n in range(self.num_noise_type)
             ]
             # (Batch, num_noise_type, samples) or (Batch, num_noise_type, samples, channels)
             noise_ref = torch.stack(noise_ref, dim=1)
@@ -103,25 +112,26 @@ class ESPnetFrontendModel(AbsESPnetModel):
             noise_ref = None
 
         # dereverberated noisy signal (optional, only used for frontend models with WPE)
-        dereverb_speech_ref = kwargs.get('dereverb_ref', None)
+        dereverb_speech_ref = kwargs.get("dereverb_ref", None)
 
         speech_lengths = speech_mix_lengths
         assert speech_lengths.dim() == 1, speech_lengths.shape
         # Check that batch_size is unified
-        assert (speech_mix.shape[0]
-                == speech_ref.shape[0]
-                == speech_lengths.shape[0]
-        ), (speech_mix.shape, speech_ref.shape, speech_lengths.shape)
+        assert speech_mix.shape[0] == speech_ref.shape[0] == speech_lengths.shape[0], (
+            speech_mix.shape,
+            speech_ref.shape,
+            speech_lengths.shape,
+        )
         batch_size = speech_mix.shape[0]
 
         # for data-parallel
-        if speech_ref.dim() == 3:   # single-channel
+        if speech_ref.dim() == 3:  # single-channel
             speech_ref = speech_ref[:, :, : speech_lengths.max()]
-        else:   # multi-channel
+        else:  # multi-channel
             speech_ref = speech_ref[:, :, : speech_lengths.max(), :]
-        if speech_mix.dim() == 3:   # single-channel
+        if speech_mix.dim() == 3:  # single-channel
             speech_mix = speech_mix[:, : speech_lengths.max()]
-        else:   # multi-channel
+        else:  # multi-channel
             speech_mix = speech_mix[:, : speech_lengths.max(), :]
 
         if self.tf_factor > 0:
@@ -130,17 +140,22 @@ class ESPnetFrontendModel(AbsESPnetModel):
             spectrum_ref = [self.frontend.stft(sr)[0] for sr in speech_ref]
 
             # List[ComplexTensor(Batch, T, F)] or List[ComplexTensor(Batch, T, C, F)]
-            spectrum_ref = [ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref]
+            spectrum_ref = [
+                ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref
+            ]
             sepctrum_mix = self.frontend.stft(speech_mix)[0]
             sepctrum_mix = ComplexTensor(sepctrum_mix[..., 0], sepctrum_mix[..., 1])
 
             # prepare ideal masks
-            mask_ref = self._create_mask_label(sepctrum_mix, spectrum_ref, mask_type=self.mask_type)
+            mask_ref = self._create_mask_label(
+                sepctrum_mix, spectrum_ref, mask_type=self.mask_type
+            )
 
             if dereverb_speech_ref is not None:
                 dereverb_spectrum_ref = self.frontend.stft(dereverb_speech_ref)[0]
-                dereverb_spectrum_ref = \
-                    ComplexTensor(dereverb_spectrum_ref[..., 0], dereverb_spectrum_ref[..., 1])
+                dereverb_spectrum_ref = ComplexTensor(
+                    dereverb_spectrum_ref[..., 0], dereverb_spectrum_ref[..., 1]
+                )
                 # ComplexTensor(B, T, F) or ComplexTensor(B, T, C, F)
                 dereverb_mask_ref = self._create_mask_label(
                     sepctrum_mix, [dereverb_spectrum_ref], mask_type=self.mask_type
@@ -157,37 +172,51 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 )
 
             # predict separated speech and masks
-            spectrum_pre, tf_length, mask_pre = self.frontend(speech_mix, speech_lengths)
+            spectrum_pre, tf_length, mask_pre = self.frontend(
+                speech_mix, speech_lengths
+            )
 
             # compute TF masking loss
             if mask_pre is None:
                 # compute loss on magnitude spectrum instead
                 magnitude_pre = [abs(ps) for ps in spectrum_pre]
                 magnitude_ref = [abs(sr) for sr in spectrum_ref]
-                tf_loss, perm = self._permutation_loss(magnitude_ref, magnitude_pre, self.tf_mse_loss)
+                tf_loss, perm = self._permutation_loss(
+                    magnitude_ref, magnitude_pre, self.tf_mse_loss
+                )
             else:
-                mask_pre_ = [mask_pre['spk{}'.format(spk + 1)] for spk in range(self.num_spk)]
+                mask_pre_ = [
+                    mask_pre["spk{}".format(spk + 1)] for spk in range(self.num_spk)
+                ]
 
                 # compute TF masking loss
                 # TODO:Chenda, Shall we add options for computing loss on the masked spectrum?
-                tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, self.tf_mse_loss)
+                tf_loss, perm = self._permutation_loss(
+                    mask_ref, mask_pre_, self.tf_mse_loss
+                )
 
-                if 'dereverb' in mask_pre:
+                if "dereverb" in mask_pre:
                     if dereverb_speech_ref is None:
                         raise ValueError(
-                            'No dereverberated reference for training!\n'
+                            "No dereverberated reference for training!\n"
                             'Please specify "--use_dereverb_ref true" in run.sh'
                         )
-                    tf_loss = tf_loss + self.tf_l1_loss(dereverb_mask_ref, mask_pre['dereverb']).mean()
+                    tf_loss = (
+                        tf_loss
+                        + self.tf_l1_loss(
+                            dereverb_mask_ref, mask_pre["dereverb"]
+                        ).mean()
+                    )
 
-                if 'noise1' in mask_pre:
+                if "noise1" in mask_pre:
                     if noise_ref is None:
                         raise ValueError(
-                            'No noise reference for training!\n'
+                            "No noise reference for training!\n"
                             'Please specify "--use_noise_ref true" in run.sh'
                         )
                     mask_noise_pre = [
-                        mask_pre['noise{}'.format(n + 1)] for n in range(self.num_noise_type)
+                        mask_pre["noise{}".format(n + 1)]
+                        for n in range(self.num_noise_type)
                     ]
                     tf_noise_loss, perm_n = self._permutation_loss(
                         noise_mask_ref, mask_noise_pre, self.tf_mse_loss
@@ -199,20 +228,25 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 si_snr = None
                 loss = tf_loss
             else:
-                speech_pre = [self.frontend.stft.inverse(ps, speech_lengths)[0] for ps in spectrum_pre]
+                speech_pre = [
+                    self.frontend.stft.inverse(ps, speech_lengths)[0]
+                    for ps in spectrum_pre
+                ]
                 if speech_ref.dim() == 4:
                     # For si_snr loss, only select one channel as the reference
                     speech_ref = [sr[..., self.ref_channel] for sr in speech_ref]
                 # compute si-snr loss
-                si_snr_loss, perm = self._permutation_loss(speech_ref, speech_pre, self.si_snr_loss, perm=perm)
-                si_snr = - si_snr_loss
+                si_snr_loss, perm = self._permutation_loss(
+                    speech_ref, speech_pre, self.si_snr_loss, perm=perm
+                )
+                si_snr = -si_snr_loss
 
                 loss = (1 - self.tf_factor) * si_snr_loss + self.tf_factor * tf_loss
 
             stats = dict(
                 si_snr=si_snr.detach() if si_snr is not None else None,
                 tf_loss=tf_loss.detach(),
-                loss=loss.detach()
+                loss=loss.detach(),
             )
         else:
             # TODO:Jing, should find better way to configure for the choice of tf loss and time-only loss.
@@ -220,17 +254,18 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 # For si_snr loss of multi-channel input, only select one channel as the reference
                 speech_ref = [sr[..., self.ref_channel] for sr in speech_ref]
 
-            speech_pre, speech_lengths, *__ = self.frontend.forward_rawwav(speech_mix, speech_lengths)
+            speech_pre, speech_lengths, *__ = self.frontend.forward_rawwav(
+                speech_mix, speech_lengths
+            )
             speech_pre = torch.unbind(speech_pre, dim=1)
 
             # compute si-snr loss
-            si_snr_loss, perm = self._permutation_loss(speech_ref, speech_pre, self.si_snr_loss)
-            si_snr = - si_snr_loss
-            loss = si_snr_loss
-            stats = dict(
-                si_snr=si_snr.detach(),
-                loss=loss.detach()
+            si_snr_loss, perm = self._permutation_loss(
+                speech_ref, speech_pre, self.si_snr_loss
             )
+            si_snr = -si_snr_loss
+            loss = si_snr_loss
+            stats = dict(si_snr=si_snr.detach(), loss=loss.detach())
 
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
@@ -249,7 +284,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         elif ref.dim() == 4:
             mseloss = ((ref - inf) ** 2).mean(dim=[1, 2, 3])
         else:
-            raise ValueError('Invalid input shape: ref={}, inf={}'.format(ref, inf))
+            raise ValueError("Invalid input shape: ref={}, inf={}".format(ref, inf))
 
         return mseloss
 
@@ -266,7 +301,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         elif ref.dim() == 4:
             l1loss = abs(ref - inf).mean(dim=[1, 2, 3])
         else:
-            raise ValueError('Invalid input shape: ref={}, inf={}'.format(ref, inf))
+            raise ValueError("Invalid input shape: ref={}, inf={}".format(ref, inf))
         return l1loss
 
     @staticmethod
@@ -282,7 +317,9 @@ class ESPnetFrontendModel(AbsESPnetModel):
         s_target = (ref * inf).sum(dim=1, keepdims=True) * ref
         e_noise = inf - s_target
 
-        si_snr = 20 * torch.log10(torch.norm(s_target, p=2, dim=1) / torch.norm(e_noise, p=2, dim=1))
+        si_snr = 20 * torch.log10(
+            torch.norm(s_target, p=2, dim=1) / torch.norm(e_noise, p=2, dim=1)
+        )
         return -si_snr
 
     @staticmethod
@@ -303,7 +340,9 @@ class ESPnetFrontendModel(AbsESPnetModel):
                 [criterion(ref[s], inf[t]) for s, t in enumerate(permutation)]
             ) / len(permutation)
 
-        losses = torch.stack([pair_loss(p) for p in permutations(range(num_spk))], dim=1)
+        losses = torch.stack(
+            [pair_loss(p) for p in permutations(range(num_spk))], dim=1
+        )
         if perm is None:
             loss, perm = torch.min(losses, dim=1)
         else:
@@ -312,10 +351,7 @@ class ESPnetFrontendModel(AbsESPnetModel):
         return loss.mean(), perm
 
     def collect_feats(
-            self,
-            speech_mix: torch.Tensor,
-            speech_mix_lengths: torch.Tensor,
-            **kwargs
+        self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor, **kwargs
     ) -> Dict[str, torch.Tensor]:
         # for data-parallel
         speech_mix = speech_mix[:, : speech_mix_lengths.max()]

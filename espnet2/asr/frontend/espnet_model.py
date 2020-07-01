@@ -123,15 +123,10 @@ class ESPnetFrontendModel(AbsESPnetModel):
         )
         batch_size = speech_mix.shape[0]
 
-        # for data-parallel
-        if speech_ref.dim() == 3:  # single-channel
-            speech_ref = speech_ref[:, :, : speech_lengths.max()]
-        else:  # multi-channel
-            speech_ref = speech_ref[:, :, : speech_lengths.max(), :]
-        if speech_mix.dim() == 3:  # single-channel
-            speech_mix = speech_mix[:, : speech_lengths.max()]
-        else:  # multi-channel
-            speech_mix = speech_mix[:, : speech_lengths.max(), :]
+        # for data-parallel, (Chenda, here do not need to distinguish multi- and single- channel)
+        speech_ref = speech_ref[:, :, : speech_lengths.max()]
+        speech_mix = speech_mix[:, : speech_lengths.max()]
+
 
         if self.tf_factor > 0:
             # prepare reference speech and reference spectrum

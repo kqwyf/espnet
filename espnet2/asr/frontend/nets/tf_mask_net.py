@@ -88,7 +88,7 @@ class TFMaskingNet(torch.nn.Module):
 
         # predict masks for each speaker
         x, flens, _ = self.rnn(input_magnitude_mvn, flens)
-        masks = OrderedDict()
+        masks = []
         for linear in self.linear:
             y = linear(x)
             y = self.none_linear(y)

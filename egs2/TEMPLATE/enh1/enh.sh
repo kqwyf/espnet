@@ -49,7 +49,7 @@ feats_type=raw    # Feature type (raw or fbank_pitch).
 audio_format=flac # Audio format (only in feats_type=raw).
 fs=16k            # Sampling rate.
 min_wav_duration=0.1   # Minimum duration in second
-max_wav_duration=20    # Maximum duration in second
+max_wav_duration=30    # Maximum duration in second
 
 # Enhancement model related
 enh_exp=    # Specify the direcotry path for enhancement experiment. If this option is specified, enh_tag is ignored.
@@ -500,7 +500,7 @@ if ! "${skip_train}"; then
         fi
         # shellcheck disable=SC2086
         ${python} -m espnet2.bin.launch \
-            --cmd "${cuda_cmd} --name ${jobname}" \
+            --cmd "${cuda_cmd} --name ${jobname} --mem 40G" \
             --log "${enh_exp}"/train.log \
             --ngpu "${ngpu}" \
             --num_nodes "${num_nodes}" \

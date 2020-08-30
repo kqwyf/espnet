@@ -2,8 +2,8 @@ optim: adam
 init: xavier_uniform
 max_epoch: 100
 batch_type: folded
-batch_size:  80
-num_workers: 8
+batch_size:  32
+num_workers: 4
 optim_conf:
     lr: 1.0e-03
     eps: 1.0e-08
@@ -28,11 +28,11 @@ scheduler_conf:
 enh: tf_masking
 enh_conf:
     mask_type: PSM
-    n_fft: 512
-    hop_length: 256
+    n_fft: 256
+    hop_length: 128
     rnn_type: blstm
     layer: 3
-    unit: 1024
+    unit: 896
     dropout: 0.5
     num_spk: 2
     utt_mvn: False

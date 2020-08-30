@@ -9,7 +9,7 @@ import torch
 from torch_complex.tensor import ComplexTensor
 
 
-class TFMaskingNet(AbsEnhancement):
+class TFMaskingNetCTX(AbsEnhancement):
     """TF Masking Speech Separation Net."""
 
     def __init__(
@@ -23,12 +23,13 @@ class TFMaskingNet(AbsEnhancement):
             dropout: float = 0.0,
             num_spk: int = 2,
             nonlinear: str = "sigmoid",
+            enc_dim: int = 512,
             utt_mvn: bool = False,
             mask_type: str = "IRM",
             use_noise_mask: bool = False,
             loss_type: str = "mask_mse",
     ):
-        super(TFMaskingNet, self).__init__()
+        super(TFMaskingNetCTX, self).__init__()
 
         self.num_spk = num_spk
         self.num_bin = n_fft // 2 + 1
@@ -40,14 +41,10 @@ class TFMaskingNet(AbsEnhancement):
 
         self.stft = Stft(n_fft=n_fft, win_length=win_length, hop_length=hop_length, )
 
-        if utt_mvn:
-            self.utt_mvn = UtteranceMVN(norm_means=True, norm_vars=True)
-
-        else:
-            self.utt_mvn = None
-
+        # self.utt_mvn = UtteranceMVN(norm_means=True, norm_vars=True)
+        self.bottleneck_ctx = torch.nn.Linear(enc_dim, self.num_bin)
         self.rnn = RNN(
-            idim=self.num_bin,
+            idim=self.num_bin * 3,
             elayers=layer,
             cdim=unit,
             hdim=unit,
@@ -68,7 +65,7 @@ class TFMaskingNet(AbsEnhancement):
             "tanh": torch.nn.Tanh(),
         }[nonlinear]
 
-    def forward(self, input: torch.Tensor, ilens: torch.Tensor):
+    def forward(self, input: torch.Tensor, ctx: Tuple[torch.Tensor], ilens: torch.Tensor):
         """Forward.
 
         Args:
@@ -93,13 +90,18 @@ class TFMaskingNet(AbsEnhancement):
         # input_phase = input_spectrum / (input_magnitude + 10e-12)
 
         # apply utt mvn
-        if self.utt_mvn:
-            input_magnitude_mvn, fle = self.utt_mvn(input_magnitude, flens)
-        else:
-            input_magnitude_mvn = input_magnitude
+        # input_magnitude_mvn, fle = self.utt_mvn(input_magnitude, flens)
+
+        ctx_1, ctx_2 = ctx
+        ctx_1, ctx_2 = self.bottleneck_ctx(ctx_1), self.bottleneck_ctx(ctx_2)
+
+        ctx_1 = torch.nn.functional.interpolate(ctx_1.transpose(2, 1), input_magnitude.shape[1])
+        ctx_2 = torch.nn.functional.interpolate(ctx_2.transpose(2, 1), input_magnitude.shape[1])
+        ctx_1 = ctx_1.transpose(2, 1)
+        ctx_2 = ctx_2.transpose(2, 1)
 
         # predict masks for each speaker
-        x, flens, _ = self.rnn(input_magnitude_mvn, flens)
+        x, flens, _ = self.rnn(torch.cat([input_magnitude, ctx_1, ctx_2], dim=2), flens)
         masks = []
         for linear in self.linear:
             y = linear(x)

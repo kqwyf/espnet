@@ -136,6 +136,7 @@ class SubReporter:
         return self.epoch
 
     def next(self):
+        """Close up this step and reset state for the next step"""
         for key, stats_list in self.stats.items():
             if key not in self._seen_keys_in_the_step:
                 # Fill nan value if the key is not registered in this step
@@ -173,6 +174,12 @@ class SubReporter:
             r = to_reported_value(v, weight)
 
             if key2 not in self.stats:
+                # If it's the first time to register the key,
+                # append nan values in front of the the value
+                # to make it same length to the other stats
+                # e.g.
+                # stat A: [0.4, 0.3, 0.5]
+                # stat B: [nan, nan, 0.2]
                 nan = to_reported_value(np.nan, None if weight is None else 0)
                 self.stats[key2].extend(
                     r if i == self.count - 1 else nan for i in range(self.count)
@@ -511,7 +518,7 @@ class Reporter:
         keys2 = set.union(*[set(self.get_keys2(k)) for k in self.get_keys()])
         for key2 in keys2:
             summary_writer.add_scalars(
-                key2 + " (epoch)",
+                key2 + "_epoch",
                 {
                     k: self.stats[epoch][k][key2]
                     for k in self.get_keys(epoch)

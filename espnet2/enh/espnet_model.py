@@ -12,6 +12,8 @@ from espnet2.enh.abs_enh import AbsEnhancement
 from espnet2.torch_utils.device_funcs import force_gatherable
 from espnet2.train.abs_espnet_model import AbsESPnetModel
 from espnet2.enh.nets.tf_mask_net_ctx import TFMaskingNetCTX
+from espnet2.enh.nets.tf_mask_net_joint_ctx import TFMaskingNet_Joint_CTX
+import torch.nn.functional as F
 
 
 class ESPnetEnhancementModel(AbsESPnetModel):
@@ -156,8 +158,10 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         # (optional, only used for frontend models with WPE)
         dereverb_speech_ref = kwargs.get("dereverb_ref", None)
 
-        ctx_1 = kwargs.get('ctx_1', None)
-        ctx_2 = kwargs.get('ctx_2', None)
+        ctx = [
+            kwargs.get("ctx_{}".format(spk + 1)) for spk in range(self.num_spk)
+        ]
+
         ctx_lengths = kwargs.get('ctx_1_lengths', None)
 
         batch_size = speech_mix.shape[0]
@@ -191,13 +195,20 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             spectrum_mix = self.enh_model.stft(speech_mix)[0]
             spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
 
+            ctx_perm = None
+            ctx_loss = 0
             # predict separated speech and masks
             if isinstance(self.enh_model, TFMaskingNetCTX):
-                ctx_1 = ctx_1[:, : ctx_lengths.max(), :]
-                ctx_2 = ctx_2[:, : ctx_lengths.max(), :]
+                ctx = [c[:, : ctx_lengths.max(), :] for c in ctx]
                 spectrum_pre, tf_length, mask_pre = self.enh_model(
-                    speech_mix, (ctx_1, ctx_2), speech_lengths
+                    speech_mix, ctx, speech_lengths
                 )
+            elif isinstance(self.enh_model, TFMaskingNet_Joint_CTX):
+                ctx = [c[:, : ctx_lengths.max(), :] for c in ctx]
+                spectrum_pre, ctx_pre, tf_length, mask_pre = self.enh_model(
+                    speech_mix, speech_lengths
+                )
+                ctx_loss, ctx_perm = self._permutation_loss(ctx, ctx_pre, self.ctx_loss)
             else:
                 spectrum_pre, tf_length, mask_pre = self.enh_model(
                     speech_mix, speech_lengths
@@ -213,7 +224,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 magnitude_pre = [abs(ps + 1e-8) for ps in spectrum_pre]
                 magnitude_ref = [abs(sr + 1e-8) * theta for sr, theta in zip(spectrum_ref, thetas)]
                 tf_loss, perm = self._permutation_loss(
-                    magnitude_ref, magnitude_pre, self.tf_mse_loss, use_pit=self.use_pit
+                    magnitude_ref, magnitude_pre, self.tf_mse_loss, use_pit=self.use_pit, perm=ctx_perm
                 )
             elif self.loss_type == 'magnitude_l1':
                 if "PSM" in self.mask_type:
@@ -223,17 +234,17 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 magnitude_pre = [abs(ps + 1e-8) for ps in spectrum_pre]
                 magnitude_ref = [abs(sr + 1e-8) * theta for sr, theta in zip(spectrum_ref, thetas)]
                 tf_loss, perm = self._permutation_loss(
-                    magnitude_ref, magnitude_pre, self.tf_l1_loss, use_pit=self.use_pit
+                    magnitude_ref, magnitude_pre, self.tf_l1_loss, use_pit=self.use_pit, perm=ctx_perm
                 )
             elif self.loss_type == "spectrum":
                 # compute loss on complex spectrum
                 tf_loss, perm = self._permutation_loss(
-                    spectrum_ref, spectrum_pre, self.tf_mse_loss, use_pit=self.use_pit
+                    spectrum_ref, spectrum_pre, self.tf_mse_loss, use_pit=self.use_pit, perm=ctx_perm
                 )
             elif self.loss_type == "spectrum_l1":
                 # compute loss on complex spectrum
                 tf_loss, perm = self._permutation_loss(
-                    spectrum_ref, spectrum_pre, self.tf_l1_loss, use_pit=self.use_pit
+                    spectrum_ref, spectrum_pre, self.tf_l1_loss, use_pit=self.use_pit, perm=ctx_perm
                 )
             elif self.loss_type.startswith("mask"):
                 if self.loss_type == "mask_mse":
@@ -252,7 +263,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 )
 
                 # compute TF masking loss
-                tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, loss_func, use_pit=self.use_pit)
+                tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, loss_func, use_pit=self.use_pit,
+                                                       perm=ctx_perm)
 
                 if "dereverb" in mask_pre:
                     if dereverb_speech_ref is None:
@@ -306,7 +318,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                     noise_mask_ref, mask_noise_pre, self.tf_mse_loss, use_pit=self.use_pit
                 )
                 tf_loss = tf_loss + tf_noise_loss
-
+            tf_loss = tf_loss + ctx_loss
+            ctx_loss_ = ctx_loss.detach() if ctx_loss else 0
             if self.training:
                 si_snr = None
             else:
@@ -325,7 +338,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
 
             loss = tf_loss
 
-            stats = dict(si_snr=si_snr, loss=loss.detach(), )
+            stats = dict(si_snr=si_snr, loss=loss.detach(), ctx_loss=ctx_loss_)
         else:
             if speech_ref.dim() == 4:
                 # For si_snr loss of multi-channel input,
@@ -375,6 +388,28 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         return mseloss
 
     @staticmethod
+    def ctx_loss(ref, inf):
+        """time-frequency L1 loss.
+
+        :param ref: (Batch, T, F) or (Batch, T, C, F)
+        :param inf: (Batch, T, F) or (Batch, T, C, F)
+        :return: (Batch)
+        """
+        assert ref.dim() == inf.dim(), (ref.shape, inf.shape)
+        ref_len = ref.shape[1]
+        inf_len = inf.shape[1]
+        if ref_len > inf_len:
+            assert ((ref_len - inf_len) / ref_len) < 0.2
+            ref = ref[:, 0:inf_len, :]
+        elif ref_len < inf_len:
+            assert ((inf_len - ref_len) / inf_len) < 0.2
+            inf = inf[:, 0:ref_len, :]
+
+        l1loss = (abs(ref - inf)**2).mean(dim=[1, 2])
+
+        return l1loss
+
+    @staticmethod
     def tf_l1_loss(ref, inf):
         """time-frequency L1 loss.
 
@@ -403,8 +438,9 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         :param inf: (Batch, samples)
         :return: (Batch)
         """
-        ref = ref / torch.norm(ref, p=2, dim=1, keepdim=True)
-        inf = inf / torch.norm(inf, p=2, dim=1, keepdim=True)
+        eps = 1e-8
+        ref = ref / (torch.norm(ref, p=2, dim=1, keepdim=True) + eps)
+        inf = inf / (torch.norm(inf, p=2, dim=1, keepdim=True) + eps)
 
         s_target = (ref * inf).sum(dim=1, keepdims=True) * ref
         e_noise = inf - s_target

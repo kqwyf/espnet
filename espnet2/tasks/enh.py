@@ -17,6 +17,7 @@ from espnet2.enh.nets.beamformer_net import BeamformerNet
 from espnet2.enh.nets.tasnet import TasNet
 from espnet2.enh.nets.tf_mask_net import TFMaskingNet
 from espnet2.enh.nets.tf_mask_net_ctx import TFMaskingNetCTX
+from espnet2.enh.nets.tf_mask_net_joint_ctx import TFMaskingNet_Joint_CTX
 from espnet2.tasks.abs_task import AbsTask
 from espnet2.torch_utils.initialize import initialize
 from espnet2.train.class_choices import ClassChoices
@@ -29,7 +30,11 @@ from espnet2.utils.types import str_or_none
 
 enh_choices = ClassChoices(
     name="enh",
-    classes=dict(tf_masking=TFMaskingNet, tf_masking_ctx=TFMaskingNetCTX, tasnet=TasNet, wpe_beamformer=BeamformerNet),
+    classes=dict(tf_masking=TFMaskingNet,
+                 tf_masking_ctx=TFMaskingNetCTX,
+                 tf_masking_joint_ctx=TFMaskingNet_Joint_CTX,
+                 tasnet=TasNet,
+                 wpe_beamformer=BeamformerNet),
     type_check=AbsEnhancement,
     default="tf_masking",
 )

@@ -44,7 +44,7 @@ class TFMaskingNetCTX(AbsEnhancement):
         # self.utt_mvn = UtteranceMVN(norm_means=True, norm_vars=True)
         self.bottleneck_ctx = torch.nn.Linear(enc_dim, self.num_bin)
         self.rnn = RNN(
-            idim=self.num_bin * 3,
+            idim=self.num_bin * (1 + self.num_spk),
             elayers=layer,
             cdim=unit,
             hdim=unit,
@@ -92,16 +92,14 @@ class TFMaskingNetCTX(AbsEnhancement):
         # apply utt mvn
         # input_magnitude_mvn, fle = self.utt_mvn(input_magnitude, flens)
 
-        ctx_1, ctx_2 = ctx
-        ctx_1, ctx_2 = self.bottleneck_ctx(ctx_1), self.bottleneck_ctx(ctx_2)
-
-        ctx_1 = torch.nn.functional.interpolate(ctx_1.transpose(2, 1), input_magnitude.shape[1])
-        ctx_2 = torch.nn.functional.interpolate(ctx_2.transpose(2, 1), input_magnitude.shape[1])
-        ctx_1 = ctx_1.transpose(2, 1)
-        ctx_2 = ctx_2.transpose(2, 1)
-
+        cc = []
+        for c in ctx:
+            c = self.bottleneck_ctx(c)
+            c = torch.nn.functional.interpolate(c.transpose(2, 1), input_magnitude.shape[1])
+            c = c.transpose(2, 1)
+            cc.append(c)
         # predict masks for each speaker
-        x, flens, _ = self.rnn(torch.cat([input_magnitude, ctx_1, ctx_2], dim=2), flens)
+        x, flens, _ = self.rnn(torch.cat([input_magnitude, *cc], dim=2), flens)
         masks = []
         for linear in self.linear:
             y = linear(x)

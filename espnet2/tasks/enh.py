@@ -13,10 +13,12 @@ from typeguard import check_return_type
 
 from espnet2.enh.abs_enh import AbsEnhancement
 from espnet2.enh.espnet_model import ESPnetEnhancementModel
+from espnet2.enh.espnet_long_seq_model import ESPnetLongSeqModel
 from espnet2.enh.nets.beamformer_net import BeamformerNet
 from espnet2.enh.nets.tasnet import TasNet
 from espnet2.enh.nets.dprnn_raw import FaSNet_base as DPRNN
 from espnet2.enh.nets.tf_mask_net import TFMaskingNet
+from espnet2.enh.long_seq_nets.local_rnn import LongSeqMasking
 from espnet2.tasks.abs_task import AbsTask
 from espnet2.torch_utils.initialize import initialize
 from espnet2.train.class_choices import ClassChoices
@@ -34,9 +36,10 @@ enh_choices = ClassChoices(
         tasnet=TasNet,
         wpe_beamformer=BeamformerNet,
         dprnn=DPRNN,
+        long_seq=LongSeqMasking
     ),
     type_check=AbsEnhancement,
-    default="tf_masking",
+    default="long_seq",
 )
 
 MAX_REFERENCE_NUM = 100
@@ -146,7 +149,8 @@ class EnhancementTask(AbsTask):
         enh_model = enh_choices.get_class(args.enh)(**args.enh_conf)
 
         # 1. Build model
-        model = ESPnetEnhancementModel(enh_model=enh_model)
+        # model = ESPnetEnhancementModel(enh_model=enh_model)
+        model = ESPnetLongSeqModel(enh_model=enh_model)
 
         # FIXME(kamo): Should be done in model?
         # 2. Initialize

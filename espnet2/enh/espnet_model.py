@@ -235,6 +235,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             output_lengths: (Batch,)
             perm: () best permutation
         """
+        eps = 1e-8
         if self.loss_type != "si_snr":
             # prepare reference speech and reference spectrum
             speech_ref = torch.unbind(speech_ref, dim=1)
@@ -255,14 +256,14 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             # compute TF masking loss
             if self.loss_type == "magnitude":
                 # compute loss on magnitude spectrum
-                magnitude_pre = [abs(ps) for ps in spectrum_pre]
+                magnitude_pre = [abs(ps + eps) for ps in spectrum_pre]
                 if spectrum_ref[0].dim() > magnitude_pre[0].dim():
                     # only select one channel as the reference
                     magnitude_ref = [
-                        abs(sr[..., self.ref_channel, :]) for sr in spectrum_ref
+                        abs(sr[..., self.ref_channel, :] + eps) for sr in spectrum_ref
                     ]
                 else:
-                    magnitude_ref = [abs(sr) for sr in spectrum_ref]
+                    magnitude_ref = [abs(sr + eps) for sr in spectrum_ref]
 
                 tf_loss, perm = self._permutation_loss(
                     magnitude_ref, magnitude_pre, self.tf_mse_loss
@@ -374,19 +375,22 @@ class ESPnetEnhancementModel(AbsESPnetModel):
     def tf_mse_loss(ref, inf):
         """time-frequency MSE loss.
 
-        :param ref: (Batch, T, F) or (Batch, T, C, F)
-        :param inf: (Batch, T, F) or (Batch, T, C, F)
+        :param ref: (Batch, T, F)
+        :param inf: (Batch, T, F)
         :return: (Batch)
         """
+
         assert ref.dim() == inf.dim(), (ref.shape, inf.shape)
-        if ref.dim() == 3:
-            mseloss = (abs(ref - inf) ** 2).mean(dim=[1, 2])
-        elif ref.dim() == 4:
-            mseloss = (abs(ref - inf) ** 2).mean(dim=[1, 2, 3])
+        if isinstance(ref, ComplexTensor):
+            eps = 1e-8
         else:
-            raise ValueError(
-                "Invalid input shape: ref={}, inf={}".format(ref.shape, inf.shape)
-            )
+            eps = 0
+        if ref.dim() == 3:
+            mseloss = (abs(ref - inf + eps) ** 2).mean(dim=[1, 2])
+        elif ref.dim() == 4:
+            mseloss = (abs(ref - inf + eps) ** 2).mean(dim=[1, 2, 3])
+        else:
+            raise ValueError("Invalid input shape: ref={}, inf={}".format(ref, inf))
 
         return mseloss
 
@@ -399,14 +403,16 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         :return: (Batch)
         """
         assert ref.dim() == inf.dim(), (ref.shape, inf.shape)
-        if ref.dim() == 3:
-            l1loss = abs(ref - inf).mean(dim=[1, 2])
-        elif ref.dim() == 4:
-            l1loss = abs(ref - inf).mean(dim=[1, 2, 3])
+        if isinstance(ref, ComplexTensor):
+            eps = 1e-8
         else:
-            raise ValueError(
-                "Invalid input shape: ref={}, inf={}".format(ref.shape, inf.shape)
-            )
+            eps = 0
+        if ref.dim() == 3:
+            l1loss = abs(ref - inf + eps).mean(dim=[1, 2])
+        elif ref.dim() == 4:
+            l1loss = abs(ref - inf + eps).mean(dim=[1, 2, 3])
+        else:
+            raise ValueError("Invalid input shape: ref={}, inf={}".format(ref, inf))
         return l1loss
 
     @staticmethod

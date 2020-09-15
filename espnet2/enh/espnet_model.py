@@ -476,7 +476,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         return -1 * pair_wise_si_snr
 
     @staticmethod
-    def _permutation_loss(ref, inf, criterion, perm=None):
+    def _permutation_loss(ref, inf, criterion, perm=None, reduce=True):
         """The basic permutation loss function.
 
         Args:
@@ -497,8 +497,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 [criterion(ref[s], inf[t]) for s, t in enumerate(permutation)]
             ) / len(permutation)
 
+        device = ref[0].device
         if perm is None:
-            device = ref[0].device
             all_permutations = list(permutations(range(num_spk)))
             losses = torch.stack([pair_loss(p) for p in all_permutations], dim=1)
             loss, perm = torch.min(losses, dim=1)
@@ -516,13 +516,16 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                                 ref[s][batch].unsqueeze(0), inf[t][batch].unsqueeze(0)
                             )
                             for s, t in enumerate(p)
-                        ]
+                        ], device=device
                     ).mean()
                     for batch, p in enumerate(perm)
-                ]
+                ], device=device
             )
 
-        return loss.mean(), perm
+        if reduce:
+            return loss.mean(), perm
+        else:
+            return loss, perm
 
     def collect_feats(
         self, speech_mix: torch.Tensor, speech_mix_lengths: torch.Tensor, **kwargs

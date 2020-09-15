@@ -285,6 +285,8 @@ EOF
                 "srun",
                 # Inherit all enviroment variable from parent process
                 "--export=ALL",
+                "--mem=30G",
+                "-p 2080ti",
             ]
             # arguments for *_train.py
             + args.args

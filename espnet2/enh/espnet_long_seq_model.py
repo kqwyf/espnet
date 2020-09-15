@@ -52,65 +52,52 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         # for multi-channel signal
         self.ref_channel = getattr(self.enh_model, "ref_channel", -1)
 
-    @staticmethod
-    def _create_mask_label(mix_spec, ref_spec, mask_type="IAM"):
-        """Create mask label.
+    def compute_overlap_ratio(self, ref_1, ref_2):
+        '''
+        :param ref_1: tensor (block, T)
+        :param ref_2: tensor (block, T)
+        :return: tensor (block,)
+        '''
+        overlap = (ref_1 != 0) * (ref_2 != 0)
+        ratio = overlap.float().mean(dim=-1)
+        return ratio
 
-        :param mix_spec: ComplexTensor(B, T, F)
-        :param ref_spec: [ComplexTensor(B, T, F), ...] or ComplexTensor(B, T, F)
-        :param noise_spec: ComplexTensor(B, T, F)
-        :return: [Tensor(B, T, F), ...] or [ComplexTensor(B, T, F), ...]
-        """
+    def compute_snr_ov(self, snrs, overlap_ratio):
+        return_snrs = {}
 
-        assert mask_type in [
-            "IBM",
-            "IRM",
-            "IAM",
-            "PSM",
-            "NPSM",
-            "PSM^2",
-        ], f"mask type {mask_type} not supported"
-        eps = 10e-8
-        mask_label = []
-        for r in ref_spec:
-            mask = None
-            if mask_type == "IBM":
-                flags = [abs(r) >= abs(n) for n in ref_spec]
-                mask = reduce(lambda x, y: x * y, flags)
-                mask = mask.int()
-            elif mask_type == "IRM":
-                # TODO(Wangyou): need to fix this,
-                #  as noise referecens are provided separately
-                mask = abs(r) / (sum(([abs(n) for n in ref_spec])) + eps)
-            elif mask_type == "IAM":
-                mask = abs(r) / (abs(mix_spec) + eps)
-                mask = mask.clamp(min=0, max=1)
-            elif mask_type == "PSM" or mask_type == "NPSM":
-                phase_r = r / (abs(r) + eps)
-                phase_mix = mix_spec / (abs(mix_spec) + eps)
-                # cos(a - b) = cos(a)*cos(b) + sin(a)*sin(b)
-                cos_theta = (
-                        phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
-                )
-                mask = (abs(r) / (abs(mix_spec) + eps)) * cos_theta
-                mask = (
-                    mask.clamp(min=0, max=1)
-                    if mask_label == "NPSM"
-                    else mask.clamp(min=-1, max=1)
-                )
-            elif mask_type == "PSM^2":
-                # This is for training beamforming masks
-                phase_r = r / (abs(r) + eps)
-                phase_mix = mix_spec / (abs(mix_spec) + eps)
-                # cos(a - b) = cos(a)*cos(b) + sin(a)*sin(b)
-                cos_theta = (
-                        phase_r.real * phase_mix.real + phase_r.imag * phase_mix.imag
-                )
-                mask = (abs(r).pow(2) / (abs(mix_spec).pow(2) + eps)) * cos_theta
-                mask = mask.clamp(min=-1, max=1)
-            assert mask is not None, f"mask type {mask_type} not supported"
-            mask_label.append(mask)
-        return mask_label
+        idx_0 = (overlap_ratio == 0)
+        ov_0 = sum(idx_0 * snrs)
+        idx_0_25 = (overlap_ratio < 0.25) * (overlap_ratio > 0)
+        ov_0_25 = sum(idx_0_25 * snrs)
+        idx_25_50 = (overlap_ratio > 0.25) * (overlap_ratio < 0.5)
+        ov_25_50 = sum(idx_25_50 * snrs)
+        idx_50_75 = (overlap_ratio > 0.5) * (overlap_ratio < 0.75)
+        ov_50_75 = sum(idx_50_75 * snrs)
+        idx_75_100 = (overlap_ratio > 0.75)
+        ov_75_100 = sum(idx_75_100 * snrs)
+
+        SNR_0 = ov_0 * 2
+        cnt_0 = sum(idx_0)
+        return_snrs['snr_0'] = SNR_0 / cnt_0 if cnt_0 else 0
+
+        SNR_0_25 = ov_0_25
+        cnt_0_25 = sum(idx_0_25)
+        return_snrs['snr_0_25'] = SNR_0_25 / cnt_0_25 if cnt_0_25 else 0
+
+        SNR_25_50 = ov_25_50
+        cnt_25_50 = sum(idx_25_50)
+        return_snrs['snr_25_50'] = SNR_25_50 / cnt_25_50 if cnt_25_50 else 0
+
+        SNR_50_75 = ov_50_75
+        cnt_50_75 = sum(idx_50_75)
+        return_snrs['snr_50_75'] = SNR_50_75 / cnt_50_75 if cnt_50_75 else 0
+
+        SNR_75_100 = ov_75_100
+        cnt_75_100 = sum(idx_75_100)
+        return_snrs['snr_75_100'] = SNR_75_100 / cnt_75_100 if cnt_75_100 else 0
+
+        return return_snrs
+
 
     def forward(
             self,
@@ -183,31 +170,33 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
             noise_ref=noise_ref,
         )
 
-        # add stats for logging
-        if self.loss_type != "snr":
-            if self.training:
-                si_snr = None
-            else:
-                b, _, L = speech_ref.shape
-                ilens = torch.tensor([L] * b)
-                speech_pre = [
-                    self.enh_model.stft.inverse(ps, ilens)[0]
-                    for ps in speech_pre
-                ]
-                speech_ref = torch.unbind(speech_ref, dim=1)
-                if speech_ref[0].dim() == 3:
-                    # For si_snr loss, only select one channel as the reference
-                    speech_ref = [sr[..., self.ref_channel] for sr in speech_ref]
-                # compute si-snr loss
-                si_snr_loss, perm = self._permutation_loss(
-                    speech_ref, speech_pre, self.snr_loss, perm=perm
-                )
-                si_snr = -si_snr_loss.detach()
 
-            stats = dict(si_snr=si_snr, loss=loss.detach(), )
+        stats = dict(loss=loss.detach(), )
+        if self.training:
+            snr = None
         else:
-            stats = dict(si_snr=-loss.detach(), loss=loss.detach())
+            b, _, L = speech_ref.shape
+            ilens = torch.tensor([L] * b)
+            speech_pre = [
+                self.enh_model.stft.inverse(ps, ilens)[0]
+                for ps in speech_pre
+            ]
+            speech_ref = torch.unbind(speech_ref, dim=1)
+            if speech_ref[0].dim() == 3:
+                # For si_snr loss, only select one channel as the reference
+                speech_ref = [sr[..., self.ref_channel] for sr in speech_ref]
+            # compute si-snr loss
+            ov_ratio = self.compute_overlap_ratio(*speech_ref)
+            si_snr_loss = self._permutation_loss_ov(
+                speech_ref, speech_pre, self.snr_loss, overlap=ov_ratio
+            ).detach()
+            snrs = -si_snr_loss.detach()
+            snrs_ov = self.compute_snr_ov(snrs, ov_ratio)
+            snr = snrs.mean()
+            stats.update(snrs_ov)
 
+
+        stats['snr'] = snr
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
         return loss, stats, weight
@@ -241,5 +230,27 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
 
         return -snr
 
+    def _permutation_loss_ov(self, ref, inf, criterion, overlap=[-1]):
+        """
+        Args:
+            ref (List[torch.Tensor]): [(batch, ...), ...]
+            inf (List[torch.Tensor]): [(batch, ...), ...]
+            criterion (function): Loss function
+            overlap: List. Default is [-1] (do not consider overlap)
+            perm: (batch)
+        Returns:
+            torch.Tensor: (batch)
+        """
+        num_spk = len(ref)
 
+        def pair_loss(permutation):
+            return sum(
+                [criterion(ref[s], inf[t], overlap) for s, t in enumerate(permutation)]
+            ) / len(permutation)
+
+        losses = torch.stack([pair_loss(p) for p in permutations(range(num_spk))], dim=1)
+
+        loss, perm = torch.min(losses, dim=1)
+
+        return loss
 

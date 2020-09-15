@@ -9,9 +9,9 @@ min_or_max=max # Must be "max" for asr. This is to determine how the mixtures ar
 sample_rate=16k
 
 
-train_set=tr_spatialized_anechoic_multich
-valid_set=cv_spatialized_anechoic_multich
-test_sets="tt_spatialized_anechoic_multich"
+train_set=tr_spatialized_anechoic_multich_${min_or_max}_${sample_rate}
+valid_set=cv_spatialized_anechoic_multich_${min_or_max}_${sample_rate}
+test_sets="tt_spatialized_anechoic_multich_${min_or_max}_${sample_rate}"
 
 ./enh_asr.sh \
     --lang "en" \
@@ -27,4 +27,3 @@ test_sets="tt_spatialized_anechoic_multich"
     --ngpu 4 \
     --local_data_opts "--sample_rate ${sample_rate} --min_or_max ${min_or_max}" \
     --srctexts "data/${train_set}/text_spk1 data/${train_set}/text_spk2" "$@"
-    "$@"

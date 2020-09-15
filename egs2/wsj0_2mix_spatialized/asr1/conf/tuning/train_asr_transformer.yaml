@@ -1,7 +1,7 @@
 batch_type: folded
-batch_size: 16
+batch_size: 12
 # accum_grad: 8
-max_epoch: 200
+max_epoch: 100
 patience: none
 # The initialization method for model parameters
 init: xavier_uniform
@@ -16,14 +16,14 @@ keep_nbest_models: 10
 
 optim: adam
 batch_type: folded
-num_workers: 4
+num_workers: 2
 optim_conf:
     lr: 1.0e-03
     eps: 1.0e-08
     weight_decay: 1.0e-7
 val_scheduler_criterion:
     - valid
-    - loss
+    - loss_enh
 scheduler: reducelronplateau
 scheduler_conf:
     mode: min
@@ -33,7 +33,9 @@ scheduler_conf:
 # Enhancement Related
 enh: wpe_beamformer
 enh_conf:
+    train_mask_only: False
     mask_type: PSM^2
+    loss_type: mask_mse
     n_fft: 512
     win_length: null
     hop_length: 128
@@ -60,6 +62,14 @@ enh_conf:
     bdropout_rate: 0.0
 
 # ASR Related
+frontend: default
+frontend_conf:
+    fs: 16000
+    n_fft: 512
+    win_length: 512
+    hop_length: 128
+    frontend_conf: null
+
 encoder: transformer
 encoder_conf:
     output_size: 256
@@ -82,9 +92,8 @@ decoder_conf:
     self_attention_dropout_rate: 0.0
     src_attention_dropout_rate: 0.0
 
-model_conf:
+asr_model_conf:
     ctc_weight: 0.3
     lsm_weight: 0.1
+    enh_weight: 1000
     length_normalized_loss: false
-
-#enh_weight: 0.5

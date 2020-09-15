@@ -23,6 +23,7 @@ def test_forward_with_beamformer_net(
     noise_ref1 = torch.randn(2, 16, ch).float()
     dereverb_ref = torch.randn(2, 16, ch).float()
     model = BeamformerNet(
+        train_mask_only=True,
         mask_type=mask_type,
         loss_type=loss_type,
         n_fft=8,

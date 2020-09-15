@@ -48,7 +48,7 @@ if [[ "$track" == "1" ]]; then
 
   # make a scp file from file list
   for x in $list_set; do
-    cat $x.flist | awk -F'[/]' '{print $NF}'| sed -e 's/\.CH.\.wav/_SIMU/' > ${x}_wav.ids
+    cat $x.flist | awk -F'[/]' '{print $NF}'| sed -e 's/\.wav/_SIMU/' > ${x}_wav.ids
     paste -d" " ${x}_wav.ids $x.flist | sort -k 1 > ${x}_wav.scp
     sed -E "s#${audio_dir}/isolated/(.*).wav#${audio_dir}/isolated_ext/\1.Clean.wav#g" ${x}_wav.scp > ${x}_spk1_wav.scp
     sed -E "s#\.Clean\.wav#\.Noise\.wav#g" ${x}_spk1_wav.scp > ${x}_noise_wav.scp
@@ -122,7 +122,7 @@ for x in $list_set; do
   mkdir -p $odir/$x
   cp ${x}_wav.scp $odir/$x/wav.scp || exit 1;
   cp ${x}_spk1_wav.scp $odir/$x/spk1.scp || exit 1;
-  # cp ${x}_noise_wav.scp $odir/$x/noise1.scp || exit 1;
+  cp ${x}_noise_wav.scp $odir/$x/noise1.scp || exit 1;
   cp ${x}.txt     $odir/$x/text    || exit 1;
   cp ${x}.spk2utt $odir/$x/spk2utt || exit 1;
   cp ${x}.utt2spk $odir/$x/utt2spk || exit 1;

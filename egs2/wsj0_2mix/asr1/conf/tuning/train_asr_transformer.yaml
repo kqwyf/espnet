@@ -77,7 +77,8 @@ decoder_conf:
 asr_model_conf:
     ctc_weight: 0.3
     lsm_weight: 0.1
-    enh_weight: 0.99
     length_normalized_loss: false
 
-#enh_weight: 0.5
+joint_model_conf:
+    enh_weight: 0.99
+    end2end_train: true

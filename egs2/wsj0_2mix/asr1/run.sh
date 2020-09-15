@@ -16,6 +16,7 @@ test_sets="tt_${min_or_max}_${sample_rate}"
 ./enh_asr.sh \
     --lang "en" \
     --nbpe 5000 \
+    --max_wav_duration 15 \
     --nlsyms_txt data/nlsyms.txt \
     --token_type char \
     --lm_config conf/tuning/train_lm.yaml \

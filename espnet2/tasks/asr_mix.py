@@ -15,22 +15,26 @@ from typeguard import check_return_type
 from espnet2.asr.ctc import CTC
 from espnet2.asr.decoder.abs_decoder import AbsDecoder
 from espnet2.asr.decoder.rnn_decoder import RNNDecoder
+from espnet2.asr.decoder.transformer_decoder import (
+    DynamicConvolution2DTransformerDecoder,  # noqa: H301
+)
+from espnet2.asr.decoder.transformer_decoder import DynamicConvolutionTransformerDecoder
+from espnet2.asr.decoder.transformer_decoder import (
+    LightweightConvolution2DTransformerDecoder,  # noqa: H301
+)
+from espnet2.asr.decoder.transformer_decoder import (
+    LightweightConvolutionTransformerDecoder,  # noqa: H301
+)
 from espnet2.asr.decoder.transformer_decoder import TransformerDecoder
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
-from espnet2.asr.encoder.rnn_encoder import RNNEncoder
-from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
-from espnet2.asr.encoder.vgg_rnn_encoder import VGGRNNEncoder
-from espnet2.asr.espnet_enh_asr_model import ESPnetEnhASRModel
-from espnet2.asr.espnet_model import ESPnetASRModel
+from espnet2.asr.encoder.rnn_encoder_mix import RNNEncoderMix
+from espnet2.asr.encoder.transformer_encoder_mix import TransformerEncoderMix
+from espnet2.asr.encoder.vgg_rnn_encoder_mix import VGGRNNEncoderMix
+from espnet2.asr.espnet_model_mix import ESPnetASRMixModel
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet2.asr.frontend.default import DefaultFrontend
 from espnet2.asr.specaug.abs_specaug import AbsSpecAug
 from espnet2.asr.specaug.specaug import SpecAug
-from espnet2.enh.abs_enh import AbsEnhancement
-from espnet2.enh.espnet_model import ESPnetEnhancementModel
-from espnet2.enh.nets.beamformer_net import BeamformerNet
-from espnet2.enh.nets.tasnet import TasNet
-from espnet2.enh.nets.tf_mask_net import TFMaskingNet
 from espnet2.layers.abs_normalize import AbsNormalize
 from espnet2.layers.global_mvn import GlobalMVN
 from espnet2.layers.utterance_mvn import UtteranceMVN
@@ -38,7 +42,7 @@ from espnet2.tasks.abs_task import AbsTask
 from espnet2.torch_utils.initialize import initialize
 from espnet2.train.class_choices import ClassChoices
 from espnet2.train.collate_fn import CommonCollateFn
-from espnet2.train.preprocessor import CommonPreprocessor_multi
+from espnet2.train.preprocessor import CommonPreprocessor
 from espnet2.train.trainer import Trainer
 from espnet2.utils.get_default_kwargs import get_default_kwargs
 from espnet2.utils.nested_dict_action import NestedDictAction
@@ -46,12 +50,6 @@ from espnet2.utils.types import int_or_none
 from espnet2.utils.types import str2bool
 from espnet2.utils.types import str_or_none
 
-enh_choices = ClassChoices(
-    name="enh",
-    classes=dict(tf_masking=TFMaskingNet, tasnet=TasNet, wpe_beamformer=BeamformerNet),
-    type_check=AbsEnhancement,
-    default="tf_masking",
-)
 frontend_choices = ClassChoices(
     name="frontend",
     classes=dict(default=DefaultFrontend),
@@ -78,16 +76,23 @@ normalize_choices = ClassChoices(
 encoder_choices = ClassChoices(
     "encoder",
     classes=dict(
-        transformer=TransformerEncoder,
-        vgg_rnn=VGGRNNEncoder,
-        rnn=RNNEncoder,
+        transformer=TransformerEncoderMix,
+        vgg_rnn=VGGRNNEncoderMix,
+        rnn=RNNEncoderMix,
     ),
     type_check=AbsEncoder,
     default="rnn",
 )
 decoder_choices = ClassChoices(
     "decoder",
-    classes=dict(transformer=TransformerDecoder, rnn=RNNDecoder),
+    classes=dict(
+        transformer=TransformerDecoder,
+        lightweight_conv=LightweightConvolutionTransformerDecoder,
+        lightweight_conv2d=LightweightConvolution2DTransformerDecoder,
+        dynamic_conv=DynamicConvolutionTransformerDecoder,
+        dynamic_conv2d=DynamicConvolution2DTransformerDecoder,
+        rnn=RNNDecoder,
+    ),
     type_check=AbsDecoder,
     default="rnn",
 )
@@ -95,14 +100,12 @@ decoder_choices = ClassChoices(
 MAX_REFERENCE_NUM = 100
 
 
-class ASRTask(AbsTask):
+class ASRMixTask(AbsTask):
     # If you need more than one optimizers, change this value
     num_optimizers: int = 1
 
     # Add variable objects configurations
     class_choices_list = [
-        # --enh and --enh_conf
-        enh_choices,
         # --frontend and --frontend_conf
         frontend_choices,
         # --specaug and --specaug_conf
@@ -162,16 +165,9 @@ class ASRTask(AbsTask):
             help="The keyword arguments for CTC class.",
         )
         group.add_argument(
-            "--asr_model_conf",
+            "--model_conf",
             action=NestedDictAction,
-            default=get_default_kwargs(ESPnetASRModel),
-            help="The keyword arguments for model class.",
-        )
-
-        group.add_argument(
-            "--joint_model_conf",
-            action=NestedDictAction,
-            default=get_default_kwargs(ESPnetEnhASRModel),
+            default=get_default_kwargs(ESPnetASRMixModel),
             help="The keyword arguments for model class.",
         )
 
@@ -179,7 +175,7 @@ class ASRTask(AbsTask):
         group.add_argument(
             "--use_preprocessor",
             type=str2bool,
-            default=False,
+            default=True,
             help="Apply preprocessing to data or not",
         )
         group.add_argument(
@@ -236,16 +232,13 @@ class ASRTask(AbsTask):
         cls, args: argparse.Namespace, train: bool
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
         assert check_argument_types()
-        # TODO(Jing): ask Kamo if it ok to support several args,
-        # like text_name = 'text_ref1' and 'text_ref2'
         if args.use_preprocessor:
-            retval = CommonPreprocessor_multi(
+            retval = CommonPreprocessor(
                 train=train,
                 token_type=args.token_type,
                 token_list=args.token_list,
                 bpemodel=args.bpemodel,
                 non_linguistic_symbols=args.non_linguistic_symbols,
-                text_name=["text_ref1", "text_ref2"],
                 text_cleaner=args.cleaner,
                 g2p_type=args.g2p,
             )
@@ -259,31 +252,24 @@ class ASRTask(AbsTask):
         cls, train: bool = True, inference: bool = False
     ) -> Tuple[str, ...]:
         if not inference:
-            retval = ("speech_mix", "speech_ref1", "text_ref1")
+            retval = ("speech", "text_ref1")
         else:
             # Recognition mode
-            retval = ("speech_mix",)
+            retval = ("speech",)
         return retval
 
     @classmethod
     def optional_data_names(
         cls, train: bool = True, inference: bool = False
     ) -> Tuple[str, ...]:
-        if not inference:
-            retval = ["dereverb_ref"]
-            retval += [
-                "speech_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)
-            ]
-            retval += ["text_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)]
-            retval += ["noise_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
-        else:
-            retval = ["speech_ref{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
+        retval = []
+        retval += ["text_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)]
         retval = tuple(retval)
         assert check_return_type(retval)
         return retval
 
     @classmethod
-    def build_model(cls, args: argparse.Namespace) -> ESPnetEnhASRModel:
+    def build_model(cls, args: argparse.Namespace) -> ESPnetASRMixModel:
         assert check_argument_types()
         if isinstance(args.token_list, str):
             with open(args.token_list, encoding="utf-8") as f:
@@ -297,12 +283,6 @@ class ASRTask(AbsTask):
             raise RuntimeError("token_list must be str or list")
         vocab_size = len(token_list)
         logging.info(f"Vocabulary size: {vocab_size }")
-
-        # 0. Build pre enhancement model
-        enh_model = enh_choices.get_class(args.enh)(**args.enh_conf)
-        enh_model = ESPnetEnhancementModel(
-            enh_model
-        )
 
         # 1. frontend
         if args.input_size is None:
@@ -352,7 +332,8 @@ class ASRTask(AbsTask):
         # 7. RNN-T Decoder (Not implemented)
         rnnt_decoder = None
 
-        asr_model = ESPnetASRModel(
+        # 8. Build model
+        model = ESPnetASRMixModel(
             vocab_size=vocab_size,
             frontend=frontend,
             specaug=specaug,
@@ -362,13 +343,7 @@ class ASRTask(AbsTask):
             ctc=ctc,
             rnnt_decoder=rnnt_decoder,
             token_list=token_list,
-            **args.asr_model_conf,
-        )
-        # 8. Build model
-        model = ESPnetEnhASRModel(
-            enh_model=enh_model,
-            asr_model=asr_model,
-            **args.joint_model_conf,
+            **args.model_conf,
         )
 
         # FIXME(kamo): Should be done in model?

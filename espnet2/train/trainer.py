@@ -584,8 +584,14 @@ class Trainer:
 
                     if att_w.ndim == 2:
                         att_w = att_w[None]
-                    elif att_w.ndim > 3 or att_w.ndim == 1:
-                        raise RuntimeError(f"Must be 2 or 3 dimension: {att_w.ndim}")
+                    elif att_w.ndim == 4:
+                        # this is for long_seq, where the attention is compute between global blocks,
+                        # randomly pick one frame from blocks to show.
+                        t_len = att_w.shape[0]
+                        picked_idx = torch.randint(0, t_len, (1,))[0]
+                        att_w = att_w[picked_idx]
+                    elif att_w.ndim > 4 or att_w.ndim == 1:
+                        raise RuntimeError(f"Must be 2 or 3 or 4 dimension: {att_w.ndim}")
 
                     w, h = plt.figaspect(1.0 / len(att_w))
                     fig = plt.Figure(figsize=(w * 1.3, h * 1.3))

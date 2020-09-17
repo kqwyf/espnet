@@ -9,6 +9,14 @@ from torch_complex.tensor import ComplexTensor
 from espnet2.layers.stft import Stft
 from espnet2.enh.abs_enh import AbsEnhancement
 from collections import OrderedDict
+from espnet.nets.pytorch_backend.transformer.embedding import (
+    PositionalEncoding,  # noqa: H301
+    ScaledPositionalEncoding,  # noqa: H301
+    RelPositionalEncoding,  # noqa: H301
+)
+from espnet.nets.pytorch_backend.transformer.encoder import (
+    Encoder as TransformerEncoder,  # noqa: H301
+)
 
 
 
@@ -35,8 +43,9 @@ class ResRNN(nn.Module):
         self.rnn_type = rnn_type
         self.hidden_size = hidden_size
         self.num_direction = int(bidirectional) + 1
+        self.dropout = dropout
 
-        self.rnn = getattr(nn, rnn_type)(input_size, hidden_size, num_layers, dropout=dropout, batch_first=True,
+        self.rnn = getattr(nn, rnn_type)(input_size, hidden_size, num_layers, batch_first=True,
                                          bidirectional=bidirectional)
         self.proj = nn.Linear(hidden_size * self.num_direction, input_size)
 
@@ -46,7 +55,8 @@ class ResRNN(nn.Module):
         self.rnn.flatten_parameters()
         rnn_output, _ = self.rnn(output)
         proj_output = self.proj(rnn_output.contiguous().view(-1, rnn_output.shape[2])).view(output.shape)
-        return proj_output
+        output = F.dropout(proj_output, p=self.dropout)
+        return output
 
 
 class LocalRNN(nn.Module):
@@ -117,10 +127,58 @@ class GlobalRNN(nn.Module):
 
         return output
 
+
+class GlobalATT(nn.Module):
+    """
+        Global Att
+    """
+
+    def __init__(self, input_size, hidden_size, dropout=0, bidirectional=True):
+        super(GlobalATT, self).__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.factor = int(bidirectional) + 1
+
+        # DPRNN for 3D input (B, N, block, num_block)
+        self.row_rnn = ResRNN(input_size=input_size, hidden_size=hidden_size, rnn_type='LSTM', dropout=dropout,
+                              bidirectional=True)
+
+        self.col_att = TransformerEncoder(idim=input_size,
+                                          input_layer='linear',
+                                          attention_dim=input_size,
+                                          linear_units=2048,
+                                          attention_heads=4,
+                                          num_blocks=1,
+                                          dropout_rate=dropout,
+                                          pos_enc_class=ScaledPositionalEncoding,
+                                          normalize_before=True)
+
+        self.row_norm = nn.GroupNorm(1, input_size, eps=torch.finfo(torch.float32).eps)
+
+    def forward(self, input):
+        # input shape: B, N, block, num_block
+        batch_size, N, dim1, dim2 = input.shape
+        output = input
+
+        # intra-block RNN
+        row_input = output.permute(0, 3, 2, 1).contiguous().view(batch_size * dim2, dim1, -1)  # B*dim2, dim1, N
+        row_output = self.row_rnn(row_input)  # B*dim2, dim1, N
+        row_output = row_output.view(batch_size, dim2, dim1, -1).permute(0, 3, 2, 1).contiguous()  # B, N, dim1, dim2
+        output = output + self.row_norm(row_output)  # B, N, dim1, dim2
+
+        # inter-block RNN
+        col_input = output.permute(0, 2, 3, 1).contiguous().view(batch_size * dim1, dim2, -1)  # B*dim1, dim2, N
+        col_output, _ = self.col_att(col_input, None)  # B*dim1, dim2, N
+        col_output = col_output.view(batch_size, dim1, dim2, -1).permute(0, 3, 1, 2).contiguous()  # B, N, dim1, dim2
+        output = output + col_output
+        return output
+
+
 # base module for DPRNN-related modules
 class RNN_base(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layer=4, bidirectional=True, model='DPRNN', embedding='rnn',
-                 hpooling=True):
+    def __init__(self, input_dim, hidden_dim, num_layer=4, bidirectional=True, model='LocalRNN', embedding='rnn',
+                 hpooling=True, dropout=0):
         super(RNN_base, self).__init__()
 
         assert model in ['GlobalRNN', 'GlobalATT', 'LocalRNN', 'HRNN',
@@ -136,7 +194,8 @@ class RNN_base(nn.Module):
         self.layers = nn.ModuleList([])
         for i in range(num_layer):
             self.layers.append(
-                getattr(sys.modules[__name__], model)(self.input_dim, self.hidden_dim, bidirectional=bidirectional))
+                getattr(sys.modules[__name__], model)(self.input_dim, self.hidden_dim, bidirectional=bidirectional,
+                                                      dropout=dropout))
 
     def pad_segment(self, input, segment_size):
         # input is the 2-D features: (B, N, T)
@@ -207,8 +266,8 @@ class RNN_base(nn.Module):
 class LongSeqMasking(AbsEnhancement):
     def __init__(self, n_fft=512, hop_length=160, window_size=400, feature_dim=256, hidden_dim=128, layer=4,
                  num_spk=2, block_size=200, sr=16000, bidirectional=True, model='LocalRNN', embedding='rnn',
-                 hpooling=True,
-                 loss_type='magnitude', mask='relu'):
+                 hpooling=True, dropout=0.0,
+                 loss_type='magnitude', mask='relu', stitching_loss=False):
         """
         DPRNN-based T-F masking model for single-channel separation.
         args:
@@ -260,12 +319,14 @@ class LongSeqMasking(AbsEnhancement):
         self.enc_BN = nn.Conv1d(self.enc_dim, self.feature_dim, 1)
         # separator
         self.separator = RNN_base(self.feature_dim, self.hidden_dim, num_layer=self.num_layer,
-                                  bidirectional=bidirectional, model=self.model, embedding=embedding, hpooling=hpooling)
+                                  bidirectional=bidirectional, model=self.model, embedding=embedding,
+                                  hpooling=hpooling, dropout=dropout)
 
         # mask estimation layer
         self.mask = nn.Sequential(nn.Conv2d(self.feature_dim, self.enc_dim * self.num_spk, 1),
                                   nn.ReLU() if mask == 'relu' else nn.Sigmoid()
                                   )
+        self.stitching_loss = stitching_loss
 
     def pad_waveform(self, input, window, stride):
         # zero-padding waveform according to window/stride size.
@@ -315,10 +376,8 @@ class LongSeqMasking(AbsEnhancement):
 
         return output
 
-
     def forward(self, input, ilens):
         # input shape: (B, block_num, T)
-
 
         batch_size = input.shape[0]
 
@@ -328,7 +387,7 @@ class LongSeqMasking(AbsEnhancement):
 
         # waveform encoder
         stft = self.stft(blocked_wav)[0]
-        stft = ComplexTensor(stft[...,0], stft[..., 1])# ComplexTensor (batch*num_block, block, F)
+        stft = ComplexTensor(stft[..., 0], stft[..., 1])  # ComplexTensor (batch*num_block, block, F)
         seq_len = stft.shape[-2]
 
         enc_blocks = abs(stft).permute(0, 2, 1)  # (B * num_block, F, block)
@@ -356,14 +415,13 @@ class LongSeqMasking(AbsEnhancement):
         return masked_output, ilens, masks
         # masked_output ComplexTensor (B * num_block , num_spk, block, F)
 
-
     def forward_rawwav(
-        self, input: torch.Tensor, ilens: torch.Tensor
+            self, input: torch.Tensor, ilens: torch.Tensor
     ):
         predicted_spectrums, flens, masks = self.forward(input, ilens)
         with torch.no_grad():
             b, num_seg, L = self.segmentation(input).shape
-            ilens = torch.tensor([L] * (b*num_seg))
+            ilens = torch.tensor([L] * (b * num_seg))
         if predicted_spectrums is None:
             predicted_wavs = None
         elif isinstance(predicted_spectrums, list):

@@ -1,0 +1,45 @@
+optim: adam
+init: xavier_uniform
+max_epoch: 100
+batch_type: folded
+batch_size:  16
+num_workers: 8
+optim_conf:
+    lr: 1.0e-03
+    eps: 1.0e-08
+    weight_decay: 1.0e-8
+patience: 10
+val_scheduler_criterion:
+- valid
+- loss
+best_model_criterion:
+-   - valid
+    - snr
+    - max
+-   - valid
+    - loss
+    - min
+keep_nbest_models: 1
+scheduler: reducelronplateau
+scheduler_conf:
+    mode: min
+    factor: 0.9
+    patience: 1
+enh: long_seq
+enh_conf:
+    model: GlobalRNN
+    loss_type: magnitude
+    n_fft: 512
+    window_size: 512
+    hop_length: 256
+    feature_dim: 256
+    hidden_dim: 512
+    layer: 2
+    block_size: 200
+    bidirectional: true
+    mask: relu
+    stitching_loss: true
+    dropout: 0.0
+
+
+    

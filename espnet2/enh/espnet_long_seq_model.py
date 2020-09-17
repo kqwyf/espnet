@@ -51,6 +51,7 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         assert self.loss_type in ALL_LOSS_TYPES, self.loss_type
         # for multi-channel signal
         self.ref_channel = getattr(self.enh_model, "ref_channel", -1)
+        self.stitching_loss = getattr(self.enh_model, 'stitching_loss', False)
 
     def compute_overlap_ratio(self, ref_1, ref_2):
         '''
@@ -78,26 +79,25 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
 
         SNR_0 = ov_0 * 2
         cnt_0 = sum(idx_0)
-        return_snrs['snr_0'] = SNR_0 / cnt_0 if cnt_0 else 0
+        return_snrs['snr_0'] = (SNR_0 / cnt_0) if cnt_0 else 1e-8
 
         SNR_0_25 = ov_0_25
         cnt_0_25 = sum(idx_0_25)
-        return_snrs['snr_0_25'] = SNR_0_25 / cnt_0_25 if cnt_0_25 else 0
+        return_snrs['snr_0_25'] = (SNR_0_25 / cnt_0_25) if cnt_0_25 else 1e-8
 
         SNR_25_50 = ov_25_50
         cnt_25_50 = sum(idx_25_50)
-        return_snrs['snr_25_50'] = SNR_25_50 / cnt_25_50 if cnt_25_50 else 0
+        return_snrs['snr_25_50'] = (SNR_25_50 / cnt_25_50) if cnt_25_50 else 1e-8
 
         SNR_50_75 = ov_50_75
         cnt_50_75 = sum(idx_50_75)
-        return_snrs['snr_50_75'] = SNR_50_75 / cnt_50_75 if cnt_50_75 else 0
+        return_snrs['snr_50_75'] = (SNR_50_75 / cnt_50_75) if cnt_50_75 else 1e-8
 
         SNR_75_100 = ov_75_100
         cnt_75_100 = sum(idx_75_100)
-        return_snrs['snr_75_100'] = SNR_75_100 / cnt_75_100 if cnt_75_100 else 0
+        return_snrs['snr_75_100'] = (SNR_75_100 / cnt_75_100) if cnt_75_100 else 1e-8
 
         return return_snrs
-
 
     def forward(
             self,
@@ -124,7 +124,6 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         ]
         # (Batch, num_speaker, samples) or (Batch, num_speaker, samples, channels)
         speech_ref = torch.stack(speech_ref, dim=1)
-
 
         if "noise_ref1" in kwargs:
             # noise signal (optional, required when using
@@ -154,24 +153,27 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         )
 
         # for data-parallel
-        speech_ref = speech_ref[:, :, : speech_lengths.max()] # B, 2, L
-        speech_mix = speech_mix[:, : speech_lengths.max()]    # B, L
+        speech_ref = speech_ref[:, :, : speech_lengths.max()]  # B, 2, L
+        speech_mix = speech_mix[:, : speech_lengths.max()]  # B, L
         speech_ref = speech_ref.unbind(dim=1)
         speech_ref = [self.enh_model.segmentation(ref) for ref in speech_ref]
         num_seg = speech_ref[0].shape[1]
-        speech_ref = [ref.view(batch_size*num_seg, -1) for ref in speech_ref]
-        speech_ref = torch.stack(speech_ref, dim=1) # B*num_seg, 2, L'
+        speech_ref = [ref.view(batch_size * num_seg, -1) for ref in speech_ref]
+        speech_ref = torch.stack(speech_ref, dim=1)  # B*num_seg, 2, L'
 
         loss, speech_pre, mask_pre, out_lengths, perm = self._compute_loss(
             speech_mix,
             speech_lengths,
             speech_ref,
-            dereverb_speech_ref=None,
             noise_ref=noise_ref,
         )
-
-
         stats = dict(loss=loss.detach(), )
+
+        if self.stitching_loss:
+            stitch_loss = self._mask_stitching_loss(mask_pre, batch_size=batch_size)
+            loss += stitch_loss
+            stats['stitch_loss'] = stitch_loss.detach()
+
         if self.training:
             snr = None
         else:
@@ -195,12 +197,10 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
             snr = snrs.mean()
             stats.update(snrs_ov)
 
-
         stats['snr'] = snr
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
         return loss, stats, weight
-
 
     def snr_loss(self, ref, inf, overlap=[-1]):
         """
@@ -223,9 +223,11 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
                     if ref[i].pow(2).sum() == 0:
                         snr.append(torch.zeros(1).to(ref.device))
                     else:
-                        snr.append(10 * torch.log10(ref[i].pow(2).sum() + eps).view(1,) - 10 * torch.log10(noise[i].pow(2).sum() + eps).view(1,))
+                        snr.append(10 * torch.log10(ref[i].pow(2).sum() + eps).view(1, ) - 10 * torch.log10(
+                            noise[i].pow(2).sum() + eps).view(1, ))
                 else:
-                    snr.append(10 * torch.log10(ref[i].pow(2).sum() + eps).view(1,) - 10 * torch.log10(noise[i].pow(2).sum() + eps).view(1,))
+                    snr.append(10 * torch.log10(ref[i].pow(2).sum() + eps).view(1, ) - 10 * torch.log10(
+                        noise[i].pow(2).sum() + eps).view(1, ))
             snr = torch.cat(snr, 0)
 
         return -snr
@@ -254,3 +256,134 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
 
         return loss
 
+    def _mask_stitching_loss(self, masks, batch_size=1):
+        """
+        :param masks: dict, {'spk1': [B*seg, T, F], 'spk2': [B*seg, T, F]}
+        :return: stitching_loss
+        """
+        masks = [masks[key] for key in masks]
+
+        _, T, F = masks[0].shape
+
+        masks = [m.view(batch_size, -1, T, F) for m in masks]
+        fronts = []
+        ends = []
+        for mask in masks:
+            front, end = mask.split(T // 2, 2)
+            front = front[:, 1:, :, :].view(-1, T // 2, F)
+            end = end[:, :-1, :, :].view(-1, T // 2, F)
+            fronts.append(front)
+            ends.append(end)
+        stitching_loss, _ = self._permutation_loss(fronts, ends, self.tf_mse_loss)
+        return stitching_loss
+
+    def _compute_loss(
+            self,
+            speech_mix,
+            speech_lengths,
+            speech_ref,
+            noise_ref=None,
+    ):
+        """Compute loss according to self.loss_type.
+
+        Args:
+            speech_mix: (Batch, samples) or (Batch, samples, channels)
+            speech_lengths: (Batch,), default None for chunk interator,
+                            because the chunk-iterator does not have the
+                            speech_lengths returned. see in
+                            espnet2/iterators/chunk_iter_factory.py
+            speech_ref: (Batch, num_speaker, samples)
+                        or (Batch, num_speaker, samples, channels)
+            noise_ref: (Batch, num_speaker, samples)
+                        or (Batch, num_speaker, samples, channels)
+
+        Returns:
+            loss: (torch.Tensor) speech enhancement loss
+            speech_pre: (List[torch.Tensor] or List[ComplexTensor]) enhanced speech or spectrum(s)
+            mask_pre: (OrderedDict) estimated masks or None
+            output_lengths: (Batch,)
+            perm: () best permutation
+        """
+        eps = 1e-8
+        # prepare reference speech and reference spectrum
+        speech_ref = torch.unbind(speech_ref, dim=1)
+        spectrum_ref = [self.enh_model.stft(sr)[0] for sr in speech_ref]
+
+        # List[ComplexTensor(Batch, T, F)] or List[ComplexTensor(Batch, T, C, F)]
+        spectrum_ref = [
+            ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref
+        ]
+        spectrum_mix = self.enh_model.stft(speech_mix)[0]
+        spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
+
+        # predict separated speech and masks
+        spectrum_pre, tf_length, mask_pre = self.enh_model(
+            speech_mix, speech_lengths
+        )
+
+        # compute TF masking loss
+        if self.loss_type == "magnitude":
+            # compute loss on magnitude spectrum
+            magnitude_pre = [abs(ps + eps) for ps in spectrum_pre]
+            if spectrum_ref[0].dim() > magnitude_pre[0].dim():
+                # only select one channel as the reference
+                magnitude_ref = [
+                    abs(sr[..., self.ref_channel, :] + eps) for sr in spectrum_ref
+                ]
+            else:
+                magnitude_ref = [abs(sr + eps) for sr in spectrum_ref]
+
+            tf_loss, perm = self._permutation_loss(
+                magnitude_ref, magnitude_pre, self.tf_mse_loss
+            )
+        elif self.loss_type.startswith("mask"):
+            if self.loss_type == "mask_mse":
+                loss_func = self.tf_mse_loss
+            else:
+                raise ValueError("Unsupported loss type: %s" % self.loss_type)
+
+            assert mask_pre is not None
+            mask_pre_ = [
+                mask_pre["spk{}".format(spk + 1)] for spk in range(self.num_spk)
+            ]
+
+            # prepare ideal masks
+            mask_ref = self._create_mask_label(
+                spectrum_mix, spectrum_ref, mask_type=self.mask_type
+            )
+
+            # compute TF masking loss
+            tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, loss_func)
+
+            if "noise1" in mask_pre:
+                if noise_ref is None:
+                    raise ValueError(
+                        "No noise reference for training!\n"
+                        'Please specify "--use_noise_ref true" in run.sh'
+                    )
+
+                noise_ref = torch.unbind(noise_ref, dim=1)
+                noise_spectrum_ref = [
+                    self.enh_model.stft(nr)[0] for nr in noise_ref
+                ]
+                noise_spectrum_ref = [
+                    ComplexTensor(nr[..., 0], nr[..., 1])
+                    for nr in noise_spectrum_ref
+                ]
+                noise_mask_ref = self._create_mask_label(
+                    spectrum_mix, noise_spectrum_ref, mask_type=self.mask_type
+                )
+
+                mask_noise_pre = [
+                    mask_pre["noise{}".format(n + 1)]
+                    for n in range(self.num_noise_type)
+                ]
+                tf_noise_loss, perm_n = self._permutation_loss(
+                    noise_mask_ref, mask_noise_pre, loss_func
+                )
+                tf_loss = tf_loss + tf_noise_loss
+        else:
+            raise ValueError("Unsupported loss type: %s" % self.loss_type)
+
+        loss = tf_loss
+        return loss, spectrum_pre, mask_pre, tf_length, perm

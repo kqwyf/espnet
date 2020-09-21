@@ -7,6 +7,7 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 from typing import Union
+import os
 
 import numpy as np
 import torch
@@ -22,6 +23,8 @@ from espnet.nets.scorers.ctc import CTCPrefixScorer
 from espnet.nets.scorers.length_bonus import LengthBonus
 from espnet.utils.cli_utils import get_commandline_args
 from espnet2.fileio.datadir_writer import DatadirWriter
+from kaldiio import WriteHelper
+from espnet2.fileio.npy_scp import NpyScpWriter
 from espnet2.tasks.asr import ASRTask
 from espnet2.tasks.lm import LMTask
 from espnet2.text.build_tokenizer import build_tokenizer
@@ -187,6 +190,8 @@ class Speech2Text:
         enc, _ = self.asr_model.encode(**batch)
         assert len(enc) == 1, len(enc)
 
+        return enc
+
         # c. Passed the encoder result and the beam search
         nbest_hyps = self.beam_search(
             x=enc[0], maxlenratio=self.maxlenratio, minlenratio=self.minlenratio
@@ -296,9 +301,11 @@ def inference(
         inference=True,
     )
 
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
     # 7 .Start for-loop
     # FIXME(kamo): The output format should be discussed about
-    with DatadirWriter(output_dir) as writer:
+    with WriteHelper(f'ark,scp:{output_dir}/enc_o.ark,{output_dir}/enc_o.scp') as writer:
         for keys, batch in loader:
             assert isinstance(batch, dict), type(batch)
             assert all(isinstance(s, str) for s in keys), keys
@@ -307,21 +314,25 @@ def inference(
             batch = {k: v[0] for k, v in batch.items() if not k.endswith("_lengths")}
 
             # N-best list of (text, token, token_int, hyp_object)
-            results = speech2text(**batch)
+            enc = speech2text(**batch)[0]
 
             # Only supporting batch_size==1
             key = keys[0]
-            for n, (text, token, token_int, hyp) in zip(range(1, nbest + 1), results):
-                # Create a directory: outdir/{n}best_recog
-                ibest_writer = writer[f"{n}best_recog"]
+            writer(key, enc.cpu().numpy())
+            # writer[key] = enc.cpu().numpy()
 
-                # Write the result to each file
-                ibest_writer["token"][key] = " ".join(token)
-                ibest_writer["token_int"][key] = " ".join(map(str, token_int))
-                ibest_writer["score"][key] = str(hyp.score)
-
-                if text is not None:
-                    ibest_writer["text"][key] = text
+            # key = keys[0]
+            # for n, (text, token, token_int, hyp) in zip(range(1, nbest + 1), results):
+            #     # Create a directory: outdir/{n}best_recog
+            #     ibest_writer = writer[f"{n}best_recog"]
+            #
+            #     # Write the result to each file
+            #     ibest_writer["token"][key] = " ".join(token)
+            #     ibest_writer["token_int"][key] = " ".join(map(str, token_int))
+            #     ibest_writer["score"][key] = str(hyp.score)
+            #
+            #     if text is not None:
+            #         ibest_writer["text"][key] = text
 
 
 def get_parser():

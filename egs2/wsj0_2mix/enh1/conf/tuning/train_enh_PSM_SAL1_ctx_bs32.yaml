@@ -37,6 +37,7 @@ enh_conf:
     dropout: 0.5
     num_spk: 2
     utt_mvn: False
+    enc_dim: 256
     nonlinear: relu
     loss_type: magnitude_l1
     

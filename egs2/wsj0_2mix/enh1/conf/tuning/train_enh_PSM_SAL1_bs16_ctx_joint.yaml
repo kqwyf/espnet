@@ -1,17 +1,17 @@
 optim: adam
 init: xavier_uniform
-max_epoch: 100
+max_epoch: 150
 batch_type: folded
-batch_size:  40
-num_workers: 8
+batch_size:  16
+num_workers: 4
 optim_conf:
-    lr: 1.0e-03
+    lr: 1.0e-04
     eps: 1.0e-08
     weight_decay: 1.0e-7
-patience: 10
+patience: 15
 val_scheduler_criterion:
 - valid
-- loss
+- ctx_loss
 best_model_criterion:
 -   - valid
     - si_snr
@@ -23,21 +23,30 @@ keep_nbest_models: 1
 scheduler: reducelronplateau
 scheduler_conf:
     mode: min
-    factor: 0.7
-    patience: 1
-use_pit: false
-enh: tf_masking_ctx
+    factor: 0.8
+    patience: 2
+use_pit: true
+enh: tf_masking_joint_ctx
 enh_conf:
     mask_type: PSM
-    n_fft: 512
-    hop_length: 256
+    enc_dim: 256
+    n_fft: 256
+    hop_length: 128
     rnn_type: blstm
     layer: 3
-    unit: 1024
+    unit: 896
     dropout: 0.5
     num_spk: 2
-    use_noise_mask: true
     utt_mvn: False
+    use_noise_mask: false
     nonlinear: relu
     loss_type: magnitude_l1
+    fs: 8k
+    ctx_n_hop: 64
+    ctx_n_fft: 256
+    me_layer: 3
+    se_layer: 2 
+    ctx_dropout: 0.1
+    ctx_e_hidden:  512
+    stop_grad: true
     

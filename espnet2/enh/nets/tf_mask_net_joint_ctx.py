@@ -74,6 +74,7 @@ class TFMaskingNet_Joint_CTX(AbsEnhancement):
             ctx_e_hidden: int = 512,
             ctx_dropout: float = 0.1,
             enc_dim: int = 256,
+            stop_grad: bool = True,
     ):
         super(TFMaskingNet_Joint_CTX, self).__init__()
         self.num_spk = num_spk
@@ -82,6 +83,7 @@ class TFMaskingNet_Joint_CTX(AbsEnhancement):
         self.mask_type = mask_type
         self.loss_type = loss_type
         self.use_noise_mask = use_noise_mask
+        self.stop_grad = stop_grad
         if loss_type not in ("mask_mse", "magnitude", "magnitude_l1", "spectrum", "spectrum_l1"):
             raise ValueError("Unsupported loss type: %s" % loss_type)
 
@@ -146,7 +148,10 @@ class TFMaskingNet_Joint_CTX(AbsEnhancement):
         # input_phase = input_spectrum / (input_magnitude + 10e-12)
 
         spks_ctx_pre, n_enc, h_len = self.ctx_pre(input, ilens)
-        spks_ctx = [self.bottleneck_ctx(c) for c in spks_ctx_pre]
+        if self.stop_grad:
+            spks_ctx = [self.bottleneck_ctx(c.detach()) for c in spks_ctx_pre]
+        else:
+            spks_ctx = [self.bottleneck_ctx(c) for c in spks_ctx_pre]
         spks_ctx = [F.interpolate(c.transpose(2, 1), input_magnitude.shape[1]) for c in spks_ctx]
         spks_ctx = [c.transpose(2, 1) for c in spks_ctx]
         if self.bottleneck_noise:

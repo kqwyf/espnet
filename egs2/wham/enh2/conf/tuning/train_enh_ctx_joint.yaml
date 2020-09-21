@@ -48,4 +48,5 @@ enh_conf:
     me_layer: 2
     se_layer: 1 
     ctx_e_hidden: 512
+    stop_grad: false
     

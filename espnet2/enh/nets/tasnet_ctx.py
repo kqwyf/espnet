@@ -85,21 +85,22 @@ def remove_pad(inputs, inputs_lengths):
     return results
 
 
-class TasNet(AbsEnhancement):
+class TasNetCTX(AbsEnhancement):
     def __init__(
-        self,
-        N: int = 256,
-        L: int = 20,
-        B: int = 256,
-        H: int = 512,
-        P: int = 3,
-        X: int = 8,
-        R: int = 4,
-        num_spk: int = 2,
-        norm_type: str = "gLN",
-        causal: bool = False,
-        mask_nonlinear: str = "relu",
-        loss_type: str = "si_snr",
+            self,
+            enc_dim: int = 256,
+            N: int = 256,
+            L: int = 20,
+            B: int = 256,
+            H: int = 512,
+            P: int = 3,
+            X: int = 8,
+            R: int = 4,
+            num_spk: int = 2,
+            norm_type: str = "gLN",
+            causal: bool = False,
+            mask_nonlinear: str = "relu",
+            loss_type: str = "si_snr",
     ):
         """Main tasnet class.
 
@@ -120,7 +121,7 @@ class TasNet(AbsEnhancement):
             separation network for real-time, single-channel speech separation
         Based on https://github.com/kaituoxu/Conv-TasNet
         """
-        super(TasNet, self).__init__()
+        super(TasNetCTX, self).__init__()
         # Hyper-parameter
         self.N, self.L, self.B, self.H, self.P, self.X, self.R, self.C = (
             N,
@@ -142,6 +143,8 @@ class TasNet(AbsEnhancement):
         check_nonlinear(mask_nonlinear)
         # Components
         self.encoder = Encoder(L, N)
+        self.ctx_encoder = torch.nn.ConvTranspose1d(enc_dim, N, kernel_size=3, stride=L // 2)
+        self.ctx_bottleneck = torch.nn.Linear((num_spk + 1) * N, N)
         self.separator = TemporalConvNet(
             N, B, H, P, X, R, num_spk, norm_type, causal, mask_nonlinear
         )
@@ -153,10 +156,10 @@ class TasNet(AbsEnhancement):
             if p.dim() > 1:
                 nn.init.xavier_normal_(p)
 
-    def forward_rawwav(self, mixture, ilens=None):
-        return self.forward(mixture, ilens)
+    def forward_rawwav(self, mixture, ctx, ilens=None):
+        return self.forward(mixture, ctx, ilens)
 
-    def forward(self, mixture, ilens=None):
+    def forward(self, mixture, ctx, ilens=None):
         """Forward from mixture to estimation sources.
 
         Args:
@@ -167,6 +170,15 @@ class TasNet(AbsEnhancement):
             lens:  [Batch]
         """
         mixture_w = self.encoder(mixture)
+        cc = []
+        for c in ctx:
+            c = self.ctx_encoder(c.transpose(1, 2))
+            c = F.interpolate(c, mixture_w.shape[2])
+            cc.append(c)
+
+        mixture_w = torch.cat([mixture_w, *cc], dim=1)
+        mixture_w = self.ctx_bottleneck(mixture_w.transpose(1, 2)).transpose(1, 2)
+
         est_mask = self.separator(mixture_w)
         est_source = self.decoder(mixture_w, est_mask)
 
@@ -284,7 +296,7 @@ class Decoder(nn.Module):
 
 class TemporalConvNet(nn.Module):
     def __init__(
-        self, N, B, H, P, X, R, C, norm_type="gLN", causal=False, mask_nonlinear="relu"
+            self, N, B, H, P, X, R, C, norm_type="gLN", causal=False, mask_nonlinear="relu"
     ):
         """Basic Module of tasnet.
 
@@ -359,15 +371,15 @@ class TemporalConvNet(nn.Module):
 
 class TemporalBlock(nn.Module):
     def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride,
-        padding,
-        dilation,
-        norm_type="gLN",
-        causal=False,
+            self,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            norm_type="gLN",
+            causal=False,
     ):
         super(TemporalBlock, self).__init__()
         # [M, B, K] -> [M, H, K]
@@ -405,15 +417,15 @@ class TemporalBlock(nn.Module):
 
 class DepthwiseSeparableConv(nn.Module):
     def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride,
-        padding,
-        dilation,
-        norm_type="gLN",
-        causal=False,
+            self,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            norm_type="gLN",
+            causal=False,
     ):
         super(DepthwiseSeparableConv, self).__init__()
         # Use `groups` option to implement depthwise convolution

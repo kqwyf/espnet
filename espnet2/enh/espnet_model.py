@@ -13,6 +13,7 @@ from espnet2.torch_utils.device_funcs import force_gatherable
 from espnet2.train.abs_espnet_model import AbsESPnetModel
 from espnet2.enh.nets.tf_mask_net_ctx import TFMaskingNetCTX
 from espnet2.enh.nets.tf_mask_net_joint_ctx import TFMaskingNet_Joint_CTX
+from espnet2.enh.nets.tasnet_ctx import TasNetCTX
 import torch.nn.functional as F
 
 
@@ -345,9 +346,14 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 # only select one channel as the reference
                 speech_ref = speech_ref[..., self.ref_channel]
 
-            speech_pre, speech_lengths, *__ = self.enh_model.forward_rawwav(
-                speech_mix, speech_lengths
-            )
+            if isinstance(self.enh_model, TasNetCTX):
+                speech_pre, speech_lengths, *__ = self.enh_model.forward_rawwav(
+                    speech_mix, ctx, ilens=speech_lengths
+                )
+            else:
+                speech_pre, speech_lengths, *__ = self.enh_model.forward_rawwav(
+                    speech_mix, speech_lengths
+                )
             # speech_pre: list[(batch, sample)]
             assert speech_pre[0].dim() == 2, speech_pre[0].dim()
             speech_ref = torch.unbind(speech_ref, dim=1)
@@ -405,7 +411,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             assert ((inf_len - ref_len) / inf_len) < 0.2
             inf = inf[:, 0:ref_len, :]
 
-        l1loss = (abs(ref - inf)**2).mean(dim=[1, 2])
+        l1loss = (abs(ref - inf) ** 2).mean(dim=[1, 2])
 
         return l1loss
 

@@ -14,6 +14,8 @@ from espnet2.train.abs_espnet_model import AbsESPnetModel
 from espnet2.enh.nets.tf_mask_net_ctx import TFMaskingNetCTX
 from espnet2.enh.nets.tf_mask_net_joint_ctx import TFMaskingNet_Joint_CTX
 from espnet2.enh.nets.tasnet_ctx import TasNetCTX
+from espnet2.enh.nets.ctx_predictor import CTXPredictor
+
 import torch.nn.functional as F
 
 
@@ -22,13 +24,18 @@ class ESPnetEnhancementModel(AbsESPnetModel):
 
     def __init__(
             self, enh_model: Optional[AbsEnhancement],
-            use_pit: bool = True
+            ctx_predictor: Optional[CTXPredictor],
+            use_pit: bool = True,
+            ctx_mode: str = None,
+            ctx_factor: float = 0.5,
     ):
         assert check_argument_types()
 
         super().__init__()
-
+        self.ctx_mode = ctx_mode
         self.enh_model = enh_model
+        self.ctx_factor = ctx_factor
+        self.ctx_predictor = ctx_predictor
         self.num_spk = enh_model.num_spk
         self.num_noise_type = getattr(self.enh_model, "num_noise_type", 1)
         # get mask type for TF-domain models
@@ -159,11 +166,11 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         # (optional, only used for frontend models with WPE)
         dereverb_speech_ref = kwargs.get("dereverb_ref", None)
 
-        ctx = [
-            kwargs.get("ctx_{}".format(spk + 1)) for spk in range(self.num_spk)
+        ctx_given = [
+            kwargs.get("ctx_{}".format(spk + 1), None) for spk in range(self.num_spk)
         ]
-
         ctx_lengths = kwargs.get('ctx_1_lengths', None)
+        ctx = [c[:, : ctx_lengths.max(), :] for c in ctx_given]
 
         batch_size = speech_mix.shape[0]
         speech_lengths = (
@@ -184,6 +191,17 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         speech_ref = speech_ref[:, :, : speech_lengths.max()]
         speech_mix = speech_mix[:, : speech_lengths.max()]
 
+        ctx_perm = None
+        ctx_loss = torch.tensor(0)
+        if self.ctx_mode in ["joint_train", "predict"]:
+            ctx_pre, _ = self.ctx_predictor(speech_mix, speech_lengths)
+            ctx_feed = ctx_pre
+        else:
+            ctx_feed = ctx_given
+        if self.ctx_mode == "joint_train":
+            ctx_loss, ctx_perm = self._permutation_loss(ctx_given, ctx_pre, self.ctx_loss)
+            pass
+
         if self.loss_type != "si_snr":
             # prepare reference speech and reference spectrum
             speech_ref = torch.unbind(speech_ref, dim=1)
@@ -196,28 +214,20 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             spectrum_mix = self.enh_model.stft(speech_mix)[0]
             spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
 
-            ctx_perm = None
-            ctx_loss = 0
             # predict separated speech and masks
             if isinstance(self.enh_model, TFMaskingNetCTX):
-                ctx = [c[:, : ctx_lengths.max(), :] for c in ctx]
                 spectrum_pre, tf_length, mask_pre = self.enh_model(
-                    speech_mix, ctx, speech_lengths
+                    speech_mix, ctx_feed, speech_lengths
                 )
-            elif isinstance(self.enh_model, TFMaskingNet_Joint_CTX):
-                ctx = [c[:, : ctx_lengths.max(), :] for c in ctx]
-                spectrum_pre, ctx_pre, tf_length, mask_pre = self.enh_model(
-                    speech_mix, speech_lengths
-                )
-                ctx_loss, ctx_perm = self._permutation_loss(ctx, ctx_pre, self.ctx_loss)
             else:
                 spectrum_pre, tf_length, mask_pre = self.enh_model(
                     speech_mix, speech_lengths
                 )
 
             # compute TF masking loss
-            if self.loss_type == "magnitude":
+            if self.loss_type == "magnitude" or self.loss_type == 'magnitude_l1':
                 # compute loss on magnitude spectrum
+                loss_func = self.tf_l1_loss if ('_l1' in self.mask_type) else self.tf_mse_loss
                 if "PSM" in self.mask_type:
                     thetas = [self._psm_theta(sr, spectrum_mix) for sr in spectrum_ref]
                 else:
@@ -225,27 +235,13 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 magnitude_pre = [abs(ps + 1e-8) for ps in spectrum_pre]
                 magnitude_ref = [abs(sr + 1e-8) * theta for sr, theta in zip(spectrum_ref, thetas)]
                 tf_loss, perm = self._permutation_loss(
-                    magnitude_ref, magnitude_pre, self.tf_mse_loss, use_pit=self.use_pit, perm=ctx_perm
+                    magnitude_ref, magnitude_pre, loss_func, use_pit=self.use_pit, perm=ctx_perm
                 )
-            elif self.loss_type == 'magnitude_l1':
-                if "PSM" in self.mask_type:
-                    thetas = [self._psm_theta(sr, spectrum_mix) for sr in spectrum_ref]
-                else:
-                    thetas = [1 for sr in spectrum_ref]
-                magnitude_pre = [abs(ps + 1e-8) for ps in spectrum_pre]
-                magnitude_ref = [abs(sr + 1e-8) * theta for sr, theta in zip(spectrum_ref, thetas)]
-                tf_loss, perm = self._permutation_loss(
-                    magnitude_ref, magnitude_pre, self.tf_l1_loss, use_pit=self.use_pit, perm=ctx_perm
-                )
-            elif self.loss_type == "spectrum":
+            elif self.loss_type == "spectrum" or self.loss_type == "spectrum_l1":
                 # compute loss on complex spectrum
+                loss_func = self.tf_l1_loss if ('_l1' in self.mask_type) else self.tf_mse_loss
                 tf_loss, perm = self._permutation_loss(
-                    spectrum_ref, spectrum_pre, self.tf_mse_loss, use_pit=self.use_pit, perm=ctx_perm
-                )
-            elif self.loss_type == "spectrum_l1":
-                # compute loss on complex spectrum
-                tf_loss, perm = self._permutation_loss(
-                    spectrum_ref, spectrum_pre, self.tf_l1_loss, use_pit=self.use_pit, perm=ctx_perm
+                    spectrum_ref, spectrum_pre, loss_func, use_pit=self.use_pit, perm=ctx_perm
                 )
             elif self.loss_type.startswith("mask"):
                 if self.loss_type == "mask_mse":
@@ -262,33 +258,9 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 mask_ref = self._create_mask_label(
                     spectrum_mix, spectrum_ref, mask_type=self.mask_type
                 )
-
                 # compute TF masking loss
                 tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, loss_func, use_pit=self.use_pit,
                                                        perm=ctx_perm)
-
-                if "dereverb" in mask_pre:
-                    if dereverb_speech_ref is None:
-                        raise ValueError(
-                            "No dereverberated reference for training!\n"
-                            'Please specify "--use_dereverb_ref true" in run.sh'
-                        )
-
-                    dereverb_spectrum_ref = self.enh_model.stft(dereverb_speech_ref)[0]
-                    dereverb_spectrum_ref = ComplexTensor(
-                        dereverb_spectrum_ref[..., 0], dereverb_spectrum_ref[..., 1]
-                    )
-                    # ComplexTensor(B, T, F) or ComplexTensor(B, T, C, F)
-                    dereverb_mask_ref = self._create_mask_label(
-                        spectrum_mix, [dereverb_spectrum_ref], mask_type=self.mask_type
-                    )[0]
-
-                    tf_loss = (
-                            tf_loss
-                            + loss_func(dereverb_mask_ref, mask_pre["dereverb"]).mean()
-                    )
-
-
             else:
                 raise ValueError("Unsupported loss type: %s" % self.loss_type)
 
@@ -319,8 +291,6 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                     noise_mask_ref, mask_noise_pre, self.tf_mse_loss, use_pit=self.use_pit
                 )
                 tf_loss = tf_loss + tf_noise_loss
-            tf_loss = tf_loss + ctx_loss
-            ctx_loss_ = ctx_loss.detach() if ctx_loss else 0
             if self.training:
                 si_snr = None
             else:
@@ -338,8 +308,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
                 si_snr = -si_snr_loss.detach()
 
             loss = tf_loss
+            stats = dict(si_snr=si_snr, loss=loss.detach(), tf_loss=tf_loss.detach())
 
-            stats = dict(si_snr=si_snr, loss=loss.detach(), ctx_loss=ctx_loss_)
         else:
             if speech_ref.dim() == 4:
                 # For si_snr loss of multi-channel input,
@@ -358,14 +328,30 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             assert speech_pre[0].dim() == 2, speech_pre[0].dim()
             speech_ref = torch.unbind(speech_ref, dim=1)
 
+            if self.enh_model.predict_noise:
+                # current only support single noise source
+                assert len(speech_pre) - self.num_spk == 1
+                predict_noise = [speech_pre[-1]]
+                speech_pre = speech_pre[0:self.num_spk]
+                noise_ref = torch.unbind(noise_ref, dim=1)
+                noise_loss, _ = self._permutation_loss(noise_ref, predict_noise, self.si_snr_loss_zeromean)
+
             # compute si-snr loss
             si_snr_loss, perm = self._permutation_loss(
                 speech_ref, speech_pre, self.si_snr_loss_zeromean, use_pit=self.use_pit
             )
             si_snr = -si_snr_loss
             loss = si_snr_loss
-            stats = dict(si_snr=si_snr.detach(), loss=loss.detach())
+            stats = dict(si_snr=si_snr.detach())
+            if self.enh_model.predict_noise:
+                loss = loss + noise_loss
+                stats['noise_snr'] = - noise_loss.detach()
 
+        if self.ctx_mode == 'joint_train':
+            ctx_loss = ctx_loss * 10
+            loss = (1 - self.ctx_factor) * loss + self.ctx_factor * ctx_loss
+            stats['ctx_loss'] = ctx_loss.detach()
+        stats['loss'] = loss.detach()
         # force_gatherable: to-device and to-tensor if scalar for DataParallel
         loss, stats, weight = force_gatherable((loss, stats, batch_size), loss.device)
         return loss, stats, weight

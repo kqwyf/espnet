@@ -101,6 +101,7 @@ class TasNetCTX(AbsEnhancement):
             causal: bool = False,
             mask_nonlinear: str = "relu",
             loss_type: str = "si_snr",
+            predict_noise: bool = False,
     ):
         """Main tasnet class.
 
@@ -137,6 +138,8 @@ class TasNetCTX(AbsEnhancement):
         if loss_type != "si_snr":
             raise ValueError("Unsupported loss type: %s" % loss_type)
 
+        self.predict_noise = predict_noise
+
         self.norm_type = norm_type
         self.causal = causal
         self.mask_nonlinear = mask_nonlinear
@@ -146,7 +149,7 @@ class TasNetCTX(AbsEnhancement):
         self.ctx_encoder = torch.nn.ConvTranspose1d(enc_dim, N, kernel_size=3, stride=L // 2)
         self.ctx_bottleneck = torch.nn.Linear((num_spk + 1) * N, N)
         self.separator = TemporalConvNet(
-            N, B, H, P, X, R, num_spk, norm_type, causal, mask_nonlinear
+            N, B, H, P, X, R, num_spk + int(predict_noise), norm_type, causal, mask_nonlinear
         )
         self.decoder = Decoder(N, L)
         self.stft = None

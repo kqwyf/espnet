@@ -1,9 +1,9 @@
 optim: adam
 init: xavier_uniform
-max_epoch: 150
+max_epoch: 100
 batch_type: folded
-batch_size:  16
-num_workers: 4
+batch_size:  32
+num_workers: 8
 optim_conf:
     lr: 1.0e-03
     eps: 1.0e-08
@@ -11,7 +11,7 @@ optim_conf:
 patience: 10
 val_scheduler_criterion:
 - valid
-- ctx_loss
+- si_snr
 best_model_criterion:
 -   - valid
     - si_snr
@@ -25,8 +25,7 @@ scheduler_conf:
     mode: min
     factor: 0.7
     patience: 1
-use_pit: true
-enh: tf_masking_joint_ctx
+enh: tf_masking_ctx
 enh_conf:
     mask_type: PSM
     enc_dim: 256
@@ -41,12 +40,16 @@ enh_conf:
     use_noise_mask: true
     nonlinear: relu
     loss_type: magnitude_l1
+
+ctx_mode: joint_train
+ctx_factor: 0.8
+ctx_model_conf:
     fs: 8k
-    ctx_n_hop: 64
-    ctx_n_fft: 256
-    ctx_dropout: 0.0
+    enc_dim: 256
+    hop_length: 64
+    n_fft: 256
+    dropout: 0.1
     me_layer: 2
     se_layer: 1 
-    ctx_e_hidden: 1024
-    stop_grad: true
-    
+    hidden: 512
+    num_spk: 2

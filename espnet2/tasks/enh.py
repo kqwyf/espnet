@@ -11,6 +11,7 @@ import torch
 from typeguard import check_argument_types
 from typeguard import check_return_type
 
+from espnet2.enh.nets.ctx_predictor import CTXPredictor
 from espnet2.enh.abs_enh import AbsEnhancement
 from espnet2.enh.espnet_model import ESPnetEnhancementModel
 from espnet2.enh.nets.beamformer_net import BeamformerNet
@@ -94,10 +95,34 @@ class EnhancementTask(AbsTask):
             help="Apply preprocessing to data or not",
         )
         group.add_argument(
+            "--ctx_factor",
+            type=float,
+            default=0.5,
+            help="Apply PIT or not",
+        )
+        group.add_argument(
             "--use_pit",
             type=str2bool,
             default=True,
             help="Apply PIT or not",
+        )
+        group.add_argument(
+            "--ctx_model_conf",
+            action=NestedDictAction,
+            default=None,
+            help="The keyword arguments for CTX predictor",
+        )
+        group.add_argument(
+            "--ctx_mode",
+            type=lambda x: str_or_none(x.lower()),
+            default=None,
+            choices=[
+                "given",
+                "predict",
+                "joint_train",
+                None,
+            ],
+            help="The keyword arguments for CTX predictor",
         )
 
         for class_choices in cls.class_choices_list:
@@ -107,7 +132,7 @@ class EnhancementTask(AbsTask):
 
     @classmethod
     def build_collate_fn(
-        cls, args: argparse.Namespace
+            cls, args: argparse.Namespace
     ) -> Callable[
         [Collection[Tuple[str, Dict[str, np.ndarray]]]],
         Tuple[List[str], Dict[str, torch.Tensor]],
@@ -118,7 +143,7 @@ class EnhancementTask(AbsTask):
 
     @classmethod
     def build_preprocess_fn(
-        cls, args: argparse.Namespace, train: bool
+            cls, args: argparse.Namespace, train: bool
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
         assert check_argument_types()
         retval = None
@@ -150,9 +175,11 @@ class EnhancementTask(AbsTask):
         assert check_argument_types()
 
         enh_model = enh_choices.get_class(args.enh)(**args.enh_conf)
+        ctx_predictor = CTXPredictor(**args.ctx_model_conf) if args.ctx_model_conf else None
 
         # 1. Build model
-        model = ESPnetEnhancementModel(enh_model=enh_model, use_pit=args.use_pit)
+        model = ESPnetEnhancementModel(enh_model=enh_model, ctx_predictor=ctx_predictor, ctx_mode=args.ctx_mode,
+                                       use_pit=args.use_pit, ctx_factor=args.ctx_factor)
 
         # FIXME(kamo): Should be done in model?
         # 2. Initialize

@@ -94,6 +94,7 @@ class TFMaskingNetCTX(AbsEnhancement):
 
         cc = []
         for c in ctx:
+
             c = self.bottleneck_ctx(c)
             c = torch.nn.functional.interpolate(c.transpose(2, 1), input_magnitude.shape[1])
             c = c.transpose(2, 1)

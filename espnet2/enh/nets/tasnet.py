@@ -100,6 +100,7 @@ class TasNet(AbsEnhancement):
         causal: bool = False,
         mask_nonlinear: str = "relu",
         loss_type: str = "si_snr",
+        predict_noise: bool = False,
     ):
         """Main tasnet class.
 
@@ -136,6 +137,8 @@ class TasNet(AbsEnhancement):
         if loss_type != "si_snr":
             raise ValueError("Unsupported loss type: %s" % loss_type)
 
+        self.predict_noise = predict_noise
+
         self.norm_type = norm_type
         self.causal = causal
         self.mask_nonlinear = mask_nonlinear
@@ -143,7 +146,7 @@ class TasNet(AbsEnhancement):
         # Components
         self.encoder = Encoder(L, N)
         self.separator = TemporalConvNet(
-            N, B, H, P, X, R, num_spk, norm_type, causal, mask_nonlinear
+            N, B, H, P, X, R, num_spk + int(predict_noise), norm_type, causal, mask_nonlinear
         )
         self.decoder = Decoder(N, L)
         self.stft = None

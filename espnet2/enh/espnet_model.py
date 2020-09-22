@@ -170,7 +170,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             kwargs.get("ctx_{}".format(spk + 1), None) for spk in range(self.num_spk)
         ]
         ctx_lengths = kwargs.get('ctx_1_lengths', None)
-        ctx = [c[:, : ctx_lengths.max(), :] for c in ctx_given]
+        if ctx_lengths:
+            ctx_given = [c[:, : ctx_lengths.max(), :] for c in ctx_given]
 
         batch_size = speech_mix.shape[0]
         speech_lengths = (

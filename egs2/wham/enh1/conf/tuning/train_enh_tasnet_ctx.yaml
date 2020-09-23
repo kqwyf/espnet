@@ -25,7 +25,7 @@ scheduler_conf:
     mode: min
     factor: 0.5
     patience: 1
-enh: tasnet
+enh: tasnet_ctx
 enh_conf:
     N: 512
     L: 16
@@ -40,7 +40,7 @@ enh_conf:
     mask_nonlinear: relu
     predict_noise: true
 
-# ctx_mode: given
+ctx_mode: given
 # ctx_factor: 0.8
 # ctx_model_conf:
 #     fs: 8k

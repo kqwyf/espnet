@@ -25,7 +25,7 @@ scheduler_conf:
     mode: min
     factor: 0.5
     patience: 1
-enh: tasnet
+enh: tasnet_ctx
 enh_conf:
     N: 512
     L: 16
@@ -40,14 +40,14 @@ enh_conf:
     mask_nonlinear: relu
     predict_noise: true
 
-# ctx_mode: given
-# ctx_factor: 0.8
-# ctx_model_conf:
-#     fs: 8k
-#     hop_length: 64
-#     n_fft: 256
-#     dropout: 0.0
-#     me_layer: 2
-#     se_layer: 1 
-#     hidden: 1024
-#     num_spk: 2
+ctx_mode: joint_train
+ctx_factor: 0.8
+ctx_model_conf:
+    fs: 8k
+    hop_length: 64
+    n_fft: 256
+    dropout: 0.0
+    me_layer: 2
+    se_layer: 1 
+    hidden: 512
+    num_spk: 2

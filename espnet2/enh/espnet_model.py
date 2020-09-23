@@ -170,7 +170,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             kwargs.get("ctx_{}".format(spk + 1), None) for spk in range(self.num_spk)
         ]
         ctx_lengths = kwargs.get('ctx_1_lengths', None)
-        if ctx_lengths:
+        if ctx_lengths is not None:
             ctx_given = [c[:, : ctx_lengths.max(), :] for c in ctx_given]
 
         batch_size = speech_mix.shape[0]
@@ -319,7 +319,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
 
             if isinstance(self.enh_model, TasNetCTX):
                 speech_pre, speech_lengths, *__ = self.enh_model.forward_rawwav(
-                    speech_mix, ctx, ilens=speech_lengths
+                    speech_mix, ctx_feed, ilens=speech_lengths
                 )
             else:
                 speech_pre, speech_lengths, *__ = self.enh_model.forward_rawwav(

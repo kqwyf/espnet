@@ -339,7 +339,7 @@ class ESPnetEnhancementModel(AbsESPnetModel):
 
             # compute si-snr loss
             si_snr_loss, perm = self._permutation_loss(
-                speech_ref, speech_pre, self.si_snr_loss_zeromean, use_pit=self.use_pit
+                speech_ref, speech_pre, self.si_snr_loss_zeromean, use_pit=self.use_pit, perm=ctx_perm
             )
             si_snr = -si_snr_loss
             loss = si_snr_loss

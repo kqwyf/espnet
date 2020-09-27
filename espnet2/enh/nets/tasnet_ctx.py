@@ -89,6 +89,7 @@ class TasNetCTX(AbsEnhancement):
     def __init__(
             self,
             enc_dim: int = 256,
+            ctx_dropout: float = 0.0,
             N: int = 256,
             L: int = 20,
             B: int = 256,
@@ -148,6 +149,7 @@ class TasNetCTX(AbsEnhancement):
         self.encoder = Encoder(L, N)
         self.ctx_encoder = torch.nn.ConvTranspose1d(enc_dim, N, kernel_size=3, stride=L // 2)
         self.ctx_bottleneck = torch.nn.Linear((num_spk + 1) * N, N)
+        self.ctx_dropout = torch.nn.Dropout(p=ctx_dropout)
         self.separator = TemporalConvNet(
             N, B, H, P, X, R, num_spk + int(predict_noise), norm_type, causal, mask_nonlinear
         )
@@ -177,7 +179,7 @@ class TasNetCTX(AbsEnhancement):
         for c in ctx:
             c = self.ctx_encoder(c.transpose(1, 2))
             c = F.interpolate(c, mixture_w.shape[2])
-            cc.append(c)
+            cc.append(self.ctx_dropout(c))
 
         mixture_w = torch.cat([mixture_w, *cc], dim=1)
         mixture_w = self.ctx_bottleneck(mixture_w.transpose(1, 2)).transpose(1, 2)

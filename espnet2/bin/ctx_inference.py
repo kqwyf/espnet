@@ -6,6 +6,7 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 from typing import Union
+import os
 
 import humanfriendly
 import torch
@@ -13,6 +14,7 @@ from typeguard import check_argument_types
 
 from espnet.utils.cli_utils import get_commandline_args
 from espnet2.fileio.sound_scp import SoundScpWriter
+from kaldiio import WriteHelper
 from espnet2.tasks.enh import EnhancementTask
 from espnet2.torch_utils.device_funcs import to_device
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
@@ -84,11 +86,13 @@ def inference(
         allow_variable_data_keys=allow_variable_data_keys,
         inference=True,
     )
-
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     writers = []
+
     for i in range(num_spk):
         writers.append(
-            SoundScpWriter(f"{output_dir}/wavs/{i + 1}", f"{output_dir}/spk{i + 1}.scp")
+            WriteHelper(f"ark,scp:{output_dir}/enc_p_{i + 1}.ark,{output_dir}/enc_p_{i + 1}.scp")
         )
 
     for keys, batch in loader:
@@ -106,22 +110,11 @@ def inference(
                     batch["speech_mix"],[batch['ctx_1'], batch['ctx_2']], batch["speech_mix_lengths"]
                 )
             else:
-                waves, *_ = enh_model.enh_model.forward_rawwav(
-                    batch["speech_mix"], batch["speech_mix_lengths"]
-                )
-            assert len(waves[0]) == batch_size, len(waves[0])
+                _, pre_ctxs, _, _ =  enh_model.enh_model.forward(batch['speech_mix'], batch['speech_mix_lengths'])
+                assert len(pre_ctxs[0]) == batch_size, len(waves[0])
 
-        # FIXME(Chenda): will be incorrect when
-        #  batch size is not 1 or multi-channel case
-        if normalize_output_wav:
-            waves = [
-                (w / abs(w).max(dim=1, keepdim=True)[0] * 0.9).T.cpu().numpy()
-                for w in waves
-            ]  # list[(sample,batch)]
-        else:
-            waves = [w.T.cpu().numpy() for w in waves]
-        for (i, w) in enumerate(waves):
-            writers[i][keys[0]] = fs, w
+        for (i, pctx) in enumerate(pre_ctxs):
+            writers[i][keys[0]] = pctx[0].detach().cpu().numpy()
 
     for writer in writers:
         writer.close()

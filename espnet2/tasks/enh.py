@@ -175,11 +175,15 @@ class EnhancementTask(AbsTask):
         assert check_argument_types()
 
         enh_model = enh_choices.get_class(args.enh)(**args.enh_conf)
-        ctx_predictor = CTXPredictor(**args.ctx_model_conf) if args.ctx_model_conf else None
+        ctx_predictor = CTXPredictor(**args.ctx_model_conf) if (hasattr(args, 'ctx_model_conf') and args.ctx_model_conf) else None
+        ctx_mode = args.ctx_mode if (hasattr(args, 'ctx_mode')) else None
+        ctx_factor = args.ctx_factor if (hasattr(args, 'ctx_factor')) else 0.5
+        use_pit = args.use_pit if (hasattr(args, 'use_pit')) else True
 
         # 1. Build model
-        model = ESPnetEnhancementModel(enh_model=enh_model, ctx_predictor=ctx_predictor, ctx_mode=args.ctx_mode,
-                                       use_pit=args.use_pit, ctx_factor=args.ctx_factor)
+        model = ESPnetEnhancementModel(enh_model=enh_model, ctx_predictor=ctx_predictor,
+                                       ctx_mode=ctx_mode,
+                                       use_pit=use_pit, ctx_factor=ctx_factor)
 
         # FIXME(kamo): Should be done in model?
         # 2. Initialize

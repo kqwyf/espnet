@@ -14,6 +14,7 @@ from espnet.utils.cli_utils import get_commandline_args
 from espnet2.fileio.datadir_writer import DatadirWriter
 from espnet2.fileio.sound_scp import SoundScpReader
 from espnet2.utils import config_argparse
+from pypesq import pesq
 
 
 def scoring(
@@ -70,7 +71,10 @@ def scoring(
 
             for i in range(num_spk):
                 stoi_score = stoi(ref[i], inf[int(perm[i])], fs_sig=sample_rate)
+                pesq_score = pesq(ref[i], inf[int(perm[i])], fs=sample_rate)
+
                 writer[f"STOI_spk{i + 1}"][key] = str(stoi_score)
+                writer[f"PESQ_spk{i + 1}"][key] = str(pesq_score)
                 writer[f"SDR_spk{i + 1}"][key] = str(sdr[i])
                 writer[f"SAR_spk{i + 1}"][key] = str(sar[i])
                 writer[f"SIR_spk{i + 1}"][key] = str(sir[i])

@@ -24,6 +24,7 @@ class TFMaskingNetCTX(AbsEnhancement):
             num_spk: int = 2,
             nonlinear: str = "sigmoid",
             enc_dim: int = 512,
+            ctx_dropout: float = 0.0,
             utt_mvn: bool = False,
             mask_type: str = "IRM",
             use_noise_mask: bool = False,
@@ -31,6 +32,7 @@ class TFMaskingNetCTX(AbsEnhancement):
     ):
         super(TFMaskingNetCTX, self).__init__()
 
+        self.ctx_dropout = torch.nn.Dropout(p=ctx_dropout)
         self.num_spk = num_spk
         self.num_bin = n_fft // 2 + 1
         self.mask_type = mask_type
@@ -98,7 +100,7 @@ class TFMaskingNetCTX(AbsEnhancement):
             c = self.bottleneck_ctx(c)
             c = torch.nn.functional.interpolate(c.transpose(2, 1), input_magnitude.shape[1])
             c = c.transpose(2, 1)
-            cc.append(c)
+            cc.append(self.ctx_dropout(c))
         # predict masks for each speaker
         x, flens, _ = self.rnn(torch.cat([input_magnitude, *cc], dim=2), flens)
         masks = []
@@ -121,7 +123,7 @@ class TFMaskingNetCTX(AbsEnhancement):
         return predicted_spectrums, flens, ret_masks
 
     def forward_rawwav(
-            self, input: torch.Tensor, ilens: torch.Tensor
+            self, input: torch.Tensor, ctx: Tuple[torch.Tensor], ilens: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Output with waveforms.
 
@@ -141,7 +143,7 @@ class TFMaskingNetCTX(AbsEnhancement):
         """
 
         # predict spectrum for each speaker
-        predicted_spectrums, flens, masks = self.forward(input, ilens)
+        predicted_spectrums, flens, masks = self.forward(input, ctx, ilens)
 
         if predicted_spectrums is None:
             predicted_wavs = None

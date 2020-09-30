@@ -70,7 +70,7 @@ inference_args="--normalize_output_wav true"
 inference_model=valid.si_snr.best.pth
 
 # Evaluation related
-scoring_protocol="STOI SDR SAR SIR"
+scoring_protocol="PESQ STOI SDR SAR SIR"
 ref_channel=0
 score_with_asr=false
 

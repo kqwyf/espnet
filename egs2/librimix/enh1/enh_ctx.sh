@@ -72,7 +72,8 @@ inference_args="--normalize_output_wav true"
 inference_model=valid.si_snr.best.pth
 
 # Evaluation related
-scoring_protocol="STOI SDR SAR SIR"
+scoring_protocol="PESQ STOI SDR SAR SIR"
+scoring_mixture=false
 ref_channel=0
 score_with_asr=false
 
@@ -526,6 +527,9 @@ else
 fi
 
 
+
+
+
 if ! "${skip_eval}"; then
     if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
         log "Stage 7: Enhance Speech: training_dir=${enh_exp}"
@@ -567,6 +571,8 @@ if ! "${skip_eval}"; then
                     --ngpu "${_ngpu}" \
                     --fs "${fs}" \
                     --data_path_and_name_and_type "${_data}/${_scp},speech_mix,${_type}" \
+                    --data_path_and_name_and_type "${_data}/enc_${ctx}_1.scp,ctx_1,kaldi_ark" \
+                    --data_path_and_name_and_type "${_data}/enc_${ctx}_2.scp,ctx_2,kaldi_ark" \
                     --key_file "${_logdir}"/keys.JOB.scp \
                     --enh_train_config "${enh_exp}"/config.yaml \
                     --enh_model_file "${enh_exp}"/"${inference_model}" \
@@ -591,17 +597,32 @@ if ! "${skip_eval}"; then
     fi
 
 
+
+
     if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
         log "Stage 8: Scoring"
         _cmd=${decode_cmd}
 
         for dset in "${valid_set}" ${test_sets}; do
+            
             _data="${data_feats}/${dset}"
-            _inf_dir="${enh_exp}/enhanced_${dset}"
-            _dir="${enh_exp}/enhanced_${dset}/scoring"
-            _logdir="${_dir}/logdir"
-            mkdir -p "${_logdir}"
+            if "${scoring_mixture}"; then
+                enh_exp="./exp/scoring_mixture"
+                _inf_dir="${enh_exp}/${dset}"
+                _dir="${enh_exp}/${dset}/scoring"
+                _logdir="${_dir}/logdir"
+                mkdir -p "${_logdir}"
+                for spk in $(seq "${spk_num}"); do
+                    cp ${_data}/wav.scp ${_inf_dir}/spk${spk}.scp
+                done
 
+            else
+                _inf_dir="${enh_exp}/enhanced_${dset}"
+                _dir="${enh_exp}/enhanced_${dset}/scoring"
+                _logdir="${_dir}/logdir"
+                mkdir -p "${_logdir}"
+            fi 
+    
             # 1. Split the key file
             key_file=${_data}/wav.scp
             split_scps=""
@@ -656,6 +677,72 @@ if ! "${skip_eval}"; then
 else
     log "Skip the evaluation stages"
 fi
+
+if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
+    log "Stage 9: Predict ctx embedding: training_dir=${enh_exp}"
+
+    if ${gpu_inference}; then
+        _cmd=${cuda_cmd}
+        _ngpu=1
+    else
+        _cmd=${decode_cmd}
+        _ngpu=0
+    fi
+
+    _opts=
+
+    for dset in ${train_set} "${valid_set}" ${test_sets}; do
+        _data="${data_feats}/${dset}"
+        _dir="${enh_exp}/ctx_pre_${dset}"
+        _logdir="${_dir}/logdir"
+        mkdir -p "${_logdir}"
+
+        _scp=wav.scp
+        _type=sound
+
+        # 1. Split the key file
+        key_file=${_data}/${_scp}
+        split_scps=""
+        _nj=$(min "${inference_nj}" "$(<${key_file} wc -l)")
+        for n in $(seq "${_nj}"); do
+            split_scps+=" ${_logdir}/keys.${n}.scp"
+        done
+        # shellcheck disable=SC2086
+        utils/split_scp.pl "${key_file}" ${split_scps}
+
+        # 2. Submit decoding jobs
+        log "CTX predict started... log: '${_logdir}/enh_inference.*.log'"
+        # shellcheck disable=SC2086
+        ${_cmd} --gpu "${_ngpu}" JOB=1:"${_nj}" "${_logdir}"/enh_inference.JOB.log \
+            ${python} -m espnet2.bin.ctx_inference \
+                --ngpu "${_ngpu}" \
+                --fs "${fs}" \
+                --data_path_and_name_and_type "${_data}/${_scp},speech_mix,${_type}" \
+                --data_path_and_name_and_type "${_data}/enc_${ctx}_1.scp,ctx_1,kaldi_ark" \
+                --data_path_and_name_and_type "${_data}/enc_${ctx}_2.scp,ctx_2,kaldi_ark" \
+                --key_file "${_logdir}"/keys.JOB.scp \
+                --enh_train_config "${enh_exp}"/config.yaml \
+                --enh_model_file "${enh_exp}"/"${inference_model}" \
+                --output_dir "${_logdir}"/output.JOB \
+                ${_opts} ${inference_args}
+
+
+        _spk_list=" "
+        for i in $(seq ${spk_num}); do
+            _spk_list+="enc_p_${i} "
+        done
+
+        # 3. Concatenates the output files from each jobs
+        for spk in ${_spk_list} ;
+        do
+            for i in $(seq "${_nj}"); do
+                cat "${_logdir}/output.${i}/${spk}.scp"
+            done | LC_ALL=C sort -k1 > "${_dir}/${spk}.scp"
+        done
+
+    done
+fi
+
 
 if "${score_with_asr}"; then
 

@@ -19,6 +19,7 @@ test_sets="tt_mix_both_max_8k"
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \
     --fs ${sample_rate} \
+    --use_noise_ref true \
     --ngpu 1 \
     --local_data_opts "--sample_rate ${sample_rate} --min_or_max ${min_or_max}" \
     --enh_config ./conf/tuning/train_enh_PSM.yaml \

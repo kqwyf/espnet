@@ -17,7 +17,6 @@ class BeamformerNet(AbsEnhancement):
         self,
         num_spk: int = 1,
         normalize_input: bool = False,
-        train_mask_only: bool = True,
         mask_type: str = "IPM^2",
         loss_type: str = "mask_mse",
         # STFT options
@@ -54,11 +53,9 @@ class BeamformerNet(AbsEnhancement):
     ):
         super(BeamformerNet, self).__init__()
 
-        self.normalize_input = normalize_input
-        self.train_mask_only = train_mask_only
         self.mask_type = mask_type
         self.loss_type = loss_type
-        if loss_type not in ("mask_mse", "spectrum", "magnitude"):
+        if loss_type not in ("mask_mse", "spectrum"):
             raise ValueError("Unsupported loss type: %s" % loss_type)
 
         self.num_spk = num_spk
@@ -74,6 +71,7 @@ class BeamformerNet(AbsEnhancement):
             onesided=onesided,
         )
 
+        self.normalize_input = normalize_input
         self.use_beamformer = use_beamformer
         self.use_wpe = use_wpe
 
@@ -131,7 +129,7 @@ class BeamformerNet(AbsEnhancement):
 
         Returns:
             enhanced speech  (single-channel):
-                List[ComplexTensor]
+                torch.Tensor or List[torch.Tensor]
             output lengths
             predcited masks: OrderedDict[
                 'dereverb': torch.Tensor(Batch, Frames, Channel, Freq),
@@ -147,14 +145,14 @@ class BeamformerNet(AbsEnhancement):
         # (Batch, Frames, Freq) or (Batch, Frames, Channels, Freq)
         input_spectrum = ComplexTensor(input_spectrum[..., 0], input_spectrum[..., 1])
         if self.normalize_input:
-            input_spectrum = input_spectrum / abs(input_spectrum.detach()).max()
+            input_spectrum = input_spectrum / abs(input_spectrum).max()
 
         # Shape of input spectrum must be (B, T, F) or (B, T, C, F)
         assert input_spectrum.dim() in (3, 4), input_spectrum.dim()
         enhanced = input_spectrum
         masks = OrderedDict()
 
-        if self.training and self.loss_type.startswith("mask") and self.train_mask_only:
+        if self.training and self.loss_type.startswith("mask"):
             # Only estimating masks for training
             if self.use_wpe:
                 if input_spectrum.dim() == 3:
@@ -208,9 +206,14 @@ class BeamformerNet(AbsEnhancement):
                     if len(masks_b) > self.num_spk:
                         masks["noise1"] = masks_b[self.num_spk]
 
-        if not isinstance(enhanced, list):
+        # Convert ComplexTensor to torch.Tensor
+        # (B, T, F) -> (B, T, F, 2)
+        if isinstance(enhanced, list):
+            # multi-speaker output
+            enhanced = [torch.stack([enh.real, enh.imag], dim=-1) for enh in enhanced]
+        else:
             # single-speaker output
-            enhanced = [enhanced]
+            enhanced = torch.stack([enhanced.real, enhanced.imag], dim=-1).float()
         return enhanced, flens, masks
 
     def forward_rawwav(self, input: torch.Tensor, ilens: torch.Tensor):

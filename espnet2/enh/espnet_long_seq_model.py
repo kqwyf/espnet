@@ -27,6 +27,7 @@ ALL_LOSS_TYPES = (
     "spectrum",
     # si_snr(enhanced_waveform, target_waveform)
     "si_snr",
+    "snr",
 )
 
 
@@ -179,10 +180,11 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         else:
             b, _, L = speech_ref.shape
             ilens = torch.tensor([L] * b)
-            speech_pre = [
-                self.enh_model.stft.inverse(ps, ilens)[0]
-                for ps in speech_pre
-            ]
+            if self.loss_type != "snr":
+                speech_pre = [
+                    self.enh_model.stft.inverse(ps, ilens)[0]
+                    for ps in speech_pre
+                ]
             speech_ref = torch.unbind(speech_ref, dim=1)
             if speech_ref[0].dim() == 3:
                 # For si_snr loss, only select one channel as the reference
@@ -307,83 +309,93 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         eps = 1e-8
         # prepare reference speech and reference spectrum
         speech_ref = torch.unbind(speech_ref, dim=1)
-        spectrum_ref = [self.enh_model.stft(sr)[0] for sr in speech_ref]
 
-        # List[ComplexTensor(Batch, T, F)] or List[ComplexTensor(Batch, T, C, F)]
-        spectrum_ref = [
-            ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref
-        ]
-        spectrum_mix = self.enh_model.stft(speech_mix)[0]
-        spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
+        if self.loss_type == "snr":
+            speech_pre, tf_length, mask_pre = self.enh_model.forward_rawwav(speech_mix, speech_lengths)
+            loss, perm = self._permutation_loss(speech_ref, speech_pre, self.snr_loss)
 
-        # predict separated speech and masks
-        spectrum_pre, tf_length, mask_pre = self.enh_model(
-            speech_mix, speech_lengths
-        )
+            pass
 
-        # compute TF masking loss
-        if self.loss_type == "magnitude":
-            # compute loss on magnitude spectrum
-            magnitude_pre = [abs(ps + eps) for ps in spectrum_pre]
-            if spectrum_ref[0].dim() > magnitude_pre[0].dim():
-                # only select one channel as the reference
-                magnitude_ref = [
-                    abs(sr[..., self.ref_channel, :] + eps) for sr in spectrum_ref
-                ]
-            else:
-                magnitude_ref = [abs(sr + eps) for sr in spectrum_ref]
+        else:
+            spectrum_ref = [self.enh_model.stft(sr)[0] for sr in speech_ref]
 
-            tf_loss, perm = self._permutation_loss(
-                magnitude_ref, magnitude_pre, self.tf_mse_loss
-            )
-        elif self.loss_type.startswith("mask"):
-            if self.loss_type == "mask_mse":
-                loss_func = self.tf_mse_loss
-            else:
-                raise ValueError("Unsupported loss type: %s" % self.loss_type)
-
-            assert mask_pre is not None
-            mask_pre_ = [
-                mask_pre["spk{}".format(spk + 1)] for spk in range(self.num_spk)
+            # List[ComplexTensor(Batch, T, F)] or List[ComplexTensor(Batch, T, C, F)]
+            spectrum_ref = [
+                ComplexTensor(sr[..., 0], sr[..., 1]) for sr in spectrum_ref
             ]
+            spectrum_mix = self.enh_model.stft(speech_mix)[0]
+            spectrum_mix = ComplexTensor(spectrum_mix[..., 0], spectrum_mix[..., 1])
 
-            # prepare ideal masks
-            mask_ref = self._create_mask_label(
-                spectrum_mix, spectrum_ref, mask_type=self.mask_type
+            # predict separated speech and masks
+            spectrum_pre, tf_length, mask_pre = self.enh_model(
+                speech_mix, speech_lengths
             )
 
             # compute TF masking loss
-            tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, loss_func)
+            if self.loss_type == "magnitude":
+                # compute loss on magnitude spectrum
+                magnitude_pre = [abs(ps + eps) for ps in spectrum_pre]
+                if spectrum_ref[0].dim() > magnitude_pre[0].dim():
+                    # only select one channel as the reference
+                    magnitude_ref = [
+                        abs(sr[..., self.ref_channel, :] + eps) for sr in spectrum_ref
+                    ]
+                else:
+                    magnitude_ref = [abs(sr + eps) for sr in spectrum_ref]
 
-            if "noise1" in mask_pre:
-                if noise_ref is None:
-                    raise ValueError(
-                        "No noise reference for training!\n"
-                        'Please specify "--use_noise_ref true" in run.sh'
+                tf_loss, perm = self._permutation_loss(
+                    magnitude_ref, magnitude_pre, self.tf_mse_loss
+                )
+
+            elif self.loss_type.startswith("mask"):
+                if self.loss_type == "mask_mse":
+                    loss_func = self.tf_mse_loss
+                else:
+                    raise ValueError("Unsupported loss type: %s" % self.loss_type)
+
+                assert mask_pre is not None
+                mask_pre_ = [
+                    mask_pre["spk{}".format(spk + 1)] for spk in range(self.num_spk)
+                ]
+
+                # prepare ideal masks
+                mask_ref = self._create_mask_label(
+                    spectrum_mix, spectrum_ref, mask_type=self.mask_type
+                )
+
+                # compute TF masking loss
+                tf_loss, perm = self._permutation_loss(mask_ref, mask_pre_, loss_func)
+
+                if "noise1" in mask_pre:
+                    if noise_ref is None:
+                        raise ValueError(
+                            "No noise reference for training!\n"
+                            'Please specify "--use_noise_ref true" in run.sh'
+                        )
+
+                    noise_ref = torch.unbind(noise_ref, dim=1)
+                    noise_spectrum_ref = [
+                        self.enh_model.stft(nr)[0] for nr in noise_ref
+                    ]
+                    noise_spectrum_ref = [
+                        ComplexTensor(nr[..., 0], nr[..., 1])
+                        for nr in noise_spectrum_ref
+                    ]
+                    noise_mask_ref = self._create_mask_label(
+                        spectrum_mix, noise_spectrum_ref, mask_type=self.mask_type
                     )
 
-                noise_ref = torch.unbind(noise_ref, dim=1)
-                noise_spectrum_ref = [
-                    self.enh_model.stft(nr)[0] for nr in noise_ref
-                ]
-                noise_spectrum_ref = [
-                    ComplexTensor(nr[..., 0], nr[..., 1])
-                    for nr in noise_spectrum_ref
-                ]
-                noise_mask_ref = self._create_mask_label(
-                    spectrum_mix, noise_spectrum_ref, mask_type=self.mask_type
-                )
+                    mask_noise_pre = [
+                        mask_pre["noise{}".format(n + 1)]
+                        for n in range(self.num_noise_type)
+                    ]
+                    tf_noise_loss, perm_n = self._permutation_loss(
+                        noise_mask_ref, mask_noise_pre, loss_func
+                    )
+                    tf_loss = tf_loss + tf_noise_loss
+            else:
+                raise ValueError("Unsupported loss type: %s" % self.loss_type)
+            speech_pre = spectrum_pre
 
-                mask_noise_pre = [
-                    mask_pre["noise{}".format(n + 1)]
-                    for n in range(self.num_noise_type)
-                ]
-                tf_noise_loss, perm_n = self._permutation_loss(
-                    noise_mask_ref, mask_noise_pre, loss_func
-                )
-                tf_loss = tf_loss + tf_noise_loss
-        else:
-            raise ValueError("Unsupported loss type: %s" % self.loss_type)
-
-        loss = tf_loss
-        return loss, spectrum_pre, mask_pre, tf_length, perm
+            loss = tf_loss
+        return loss, speech_pre, mask_pre, tf_length, perm

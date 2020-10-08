@@ -20,6 +20,9 @@ from espnet2.utils import config_argparse
 from espnet2.utils.types import str2bool
 from espnet2.utils.types import str2triple_str
 from espnet2.utils.types import str_or_none
+from espnet2.enh.espnet_long_seq_model import ESPnetLongSeqModel
+from espnet2.enh.long_seq_nets.local_rnn import LongSeqMasking
+from espnet2.enh.utils.long_seq_stitching import get_stitch, get_connect_v2
 
 
 def humanfriendly_or_none(value: str):
@@ -69,6 +72,11 @@ def inference(
     )
     enh_model.eval()
 
+    #### this is for other local models
+    split_model = LongSeqMasking(n_fft=512, hop_length=256, window_size=512, block_size=600)
+    split_model.eval()
+    ####
+
     num_spk = enh_model.num_spk
 
     # 3. Build data-iterator
@@ -77,7 +85,7 @@ def inference(
         dtype=dtype,
         batch_size=batch_size,
         key_file=key_file,
-        num_workers=num_workers,
+        num_workers=0,
         preprocess_fn=EnhancementTask.build_preprocess_fn(enh_train_args, False),
         collate_fn=EnhancementTask.build_collate_fn(enh_train_args, False),
         allow_variable_data_keys=allow_variable_data_keys,
@@ -100,9 +108,31 @@ def inference(
             # a. To device
             batch = to_device(batch, device)
             # b. Forward Enhancement Frontend
-            waves, _, _ = enh_model.enh_model.forward_rawwav(
-                batch["speech_mix"], batch["speech_mix_lengths"]
-            )
+            if isinstance(enh_model, ESPnetLongSeqModel):
+                if not isinstance(enh_model.enh_model, LongSeqMasking):
+                # if False:
+                    input_wav = batch["speech_mix"]
+                    input_wav = input_wav / input_wav.max()
+                    input_wav = split_model.segmentation(input_wav)[0]
+                    input_length = torch.tensor([input_wav.shape[-1]] * input_wav.shape[-2]).to(input_wav.device)
+                    pass
+                else:
+                    input_wav = batch["speech_mix"]
+                    input_length = batch["speech_mix_lengths"]
+                    split_model = enh_model.enh_model
+                waves, _ , masks = enh_model.enh_model.forward_rawwav(input_wav, input_length)
+                if 'noise1' in masks:
+                    masks.pop('noise1')
+
+                PERM = get_stitch(masks)
+                waves = get_connect_v2(waves, PERM, split_model)
+                waves = [w[:, 0:batch["speech_mix_lengths"]] for w in waves]
+                pass
+
+            else:
+                waves, _, _ = enh_model.enh_model.forward_rawwav(
+                    batch["speech_mix"], batch["speech_mix_lengths"]
+                )
             assert len(waves[0]) == batch_size, len(waves[0])
 
         # FIXME(Chenda): will be incorrect when

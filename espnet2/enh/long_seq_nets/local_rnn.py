@@ -19,7 +19,6 @@ from espnet.nets.pytorch_backend.transformer.encoder import (
 )
 
 
-
 class ResRNN(nn.Module):
     """
     Container module for a single RNN layer with linear output projection (for residual connection).
@@ -133,7 +132,8 @@ class GlobalATT(nn.Module):
         Global Att
     """
 
-    def __init__(self, input_size, hidden_size, dropout=0, bidirectional=True):
+    def __init__(self, input_size, hidden_size, dropout=0, bidirectional=True,
+                 attention_dim=256, num_head=4, att_ff=1024):
         super(GlobalATT, self).__init__()
 
         self.input_size = input_size
@@ -146,13 +146,14 @@ class GlobalATT(nn.Module):
 
         self.col_att = TransformerEncoder(idim=input_size,
                                           input_layer='linear',
-                                          attention_dim=input_size,
-                                          linear_units=2048,
-                                          attention_heads=4,
+                                          attention_dim=attention_dim,
+                                          linear_units=att_ff,
+                                          attention_heads=num_head,
                                           num_blocks=1,
                                           dropout_rate=dropout,
                                           pos_enc_class=ScaledPositionalEncoding,
                                           normalize_before=True)
+        self.col_bn = nn.Linear(attention_dim, input_size)
 
         self.row_norm = nn.GroupNorm(1, input_size, eps=torch.finfo(torch.float32).eps)
 
@@ -164,13 +165,14 @@ class GlobalATT(nn.Module):
         # intra-block RNN
         row_input = output.permute(0, 3, 2, 1).contiguous().view(batch_size * dim2, dim1, -1)  # B*dim2, dim1, N
         row_output = self.row_rnn(row_input)  # B*dim2, dim1, N
-        row_output = row_output.view(batch_size, dim2, dim1, -1).permute(0, 3, 2, 1).contiguous()  # B, N, dim1, dim2
+        row_output = row_output.view(batch_size, dim2, dim1, N).permute(0, 3, 2, 1).contiguous()  # B, N, dim1, dim2
         output = output + self.row_norm(row_output)  # B, N, dim1, dim2
 
         # inter-block RNN
-        col_input = output.permute(0, 2, 3, 1).contiguous().view(batch_size * dim1, dim2, -1)  # B*dim1, dim2, N
+        col_input = output.permute(0, 2, 3, 1).contiguous().view(batch_size * dim1, dim2, N)  # B*dim1, dim2, N
         col_output, _ = self.col_att(col_input, None)  # B*dim1, dim2, N
-        col_output = col_output.view(batch_size, dim1, dim2, -1).permute(0, 3, 1, 2).contiguous()  # B, N, dim1, dim2
+        col_output = self.col_bn(col_output)
+        col_output = col_output.view(batch_size, dim1, dim2, N).permute(0, 3, 1, 2).contiguous()  # B, N, dim1, dim2
         output = output + col_output
         return output
 
@@ -178,6 +180,7 @@ class GlobalATT(nn.Module):
 # base module for DPRNN-related modules
 class RNN_base(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layer=4, bidirectional=True, model='LocalRNN', embedding='rnn',
+                 attention_dim=256, num_head=4, att_ff=1024,
                  hpooling=True, dropout=0):
         super(RNN_base, self).__init__()
 
@@ -187,15 +190,20 @@ class RNN_base(nn.Module):
 
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-
         self.num_layer = num_layer
 
         # layers
         self.layers = nn.ModuleList([])
         for i in range(num_layer):
-            self.layers.append(
-                getattr(sys.modules[__name__], model)(self.input_dim, self.hidden_dim, bidirectional=bidirectional,
-                                                      dropout=dropout))
+            if model == "GlobalATT":
+                self.layers.append(
+                    GlobalATT(self.input_dim, self.hidden_dim, bidirectional=bidirectional,
+                              attention_dim=attention_dim, num_head=num_head, att_ff=att_ff,
+                              dropout=dropout))
+            else:
+                self.layers.append(
+                    getattr(sys.modules[__name__], model)(self.input_dim, self.hidden_dim, bidirectional=bidirectional,
+                                                          dropout=dropout))
 
     def pad_segment(self, input, segment_size):
         # input is the 2-D features: (B, N, T)
@@ -266,6 +274,7 @@ class RNN_base(nn.Module):
 class LongSeqMasking(AbsEnhancement):
     def __init__(self, n_fft=512, hop_length=160, window_size=400, feature_dim=256, hidden_dim=128, layer=4,
                  num_spk=2, block_size=200, sr=16000, bidirectional=True, model='LocalRNN', embedding='rnn',
+                 attention_dim=256, num_head=4, att_ff=1024,
                  hpooling=True, dropout=0.0,
                  loss_type='magnitude', mask='relu', stitching_loss=False):
         """
@@ -320,6 +329,7 @@ class LongSeqMasking(AbsEnhancement):
         # separator
         self.separator = RNN_base(self.feature_dim, self.hidden_dim, num_layer=self.num_layer,
                                   bidirectional=bidirectional, model=self.model, embedding=embedding,
+                                  attention_dim=attention_dim, num_head=num_head, att_ff=att_ff,
                                   hpooling=hpooling, dropout=dropout)
 
         # mask estimation layer

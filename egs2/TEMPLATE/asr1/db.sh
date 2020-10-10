@@ -62,12 +62,12 @@ if [[ "$(hostname -d)" == clsp.jhu.edu ]]; then
 else
     AISHELL=downloads
     AN4=downloads
-    WSJ0=
-    WSJ1=
+    WSJ0=/mnt/lustre/sjtu/shared/data/asr/rawdata/WSJ/wsj0
+    WSJ1=/mnt/lustre/sjtu/shared/data/asr/rawdata/WSJ/wsj1
     WSJCAM0=
     REVERB=
     CHIME3=
-    CHIME4=
+    CHIME4=/mnt/lustre/sjtu/shared/data/asr/rawdata/CHIME3/CHiME4/
     CSJDATATOP=
     CSJVER=dvd  ## Set your CSJ format (dvd or usb).
                 ## Usage    :

@@ -6,6 +6,7 @@ import random
 from typing import Dict
 from typing import Optional
 from typing import Tuple
+import logging
 
 import torch
 from torch_complex.tensor import ComplexTensor
@@ -49,7 +50,14 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         self.mask_type = getattr(self.enh_model, "mask_type", None)
         # get loss type for model training
         self.loss_type = getattr(self.enh_model, "loss_type", None)
-        assert self.loss_type in ALL_LOSS_TYPES, self.loss_type
+        assert (self.loss_type in ALL_LOSS_TYPES, self.loss_type) or 'mse_snr_' in self.loss_type
+        if 'mse_snr_' in self.loss_type:
+            self.stage_loss = True
+            self.stage_loss_trigger = int(self.loss_type.split('_')[-1])
+            logging.info(f"stage loss trigger is {self.stage_loss_trigger}")
+        else:
+            self.stage_loss = False
+
         # for multi-channel signal
         self.ref_channel = getattr(self.enh_model, "ref_channel", -1)
         self.stitching_loss = getattr(self.enh_model, 'stitching_loss', False)
@@ -120,6 +128,9 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
         # clean speech signal of each speaker
         batch_size = speech_mix.shape[0]
 
+        if self.stage_loss:
+            self.loss_type = 'magnitude' if self.iepoch < self.stage_loss_trigger else 'snr'
+
         speech_ref = [
             kwargs["speech_ref{}".format(spk + 1)] for spk in range(self.num_spk)
         ]
@@ -153,7 +164,16 @@ class ESPnetLongSeqModel(ESPnetEnhancementModel):
             speech_lengths.shape,
         )
 
-        # for data-parallel
+        if batch_size > 1:
+            logging.warning("BS > 1, drop others")
+            speech_ref = speech_ref[0:1, ...]
+            speech_mix = speech_mix[0:1, ...]
+            speech_lengths = speech_lengths[0:1, ...]
+            batch_size = 1
+        # max_duration = 100
+        # # for data-parallel
+        # if self.training and speech_lengths.max() > 16000 * max_duration:
+        #     speech_lengths = torch.ones_like(speech_lengths) * 16000 * max_duration
         speech_ref = speech_ref[:, :, : speech_lengths.max()]  # B, 2, L
         speech_mix = speech_mix[:, : speech_lengths.max()]  # B, L
         speech_ref = speech_ref.unbind(dim=1)

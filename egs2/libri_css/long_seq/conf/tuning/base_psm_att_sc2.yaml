@@ -1,5 +1,5 @@
 init: xavier_uniform
-max_epoch: 100
+max_epoch: 150
 batch_type: folded
 batch_size:  16
 num_workers: 8
@@ -25,7 +25,7 @@ enh_conf:
     hop_length: 256
     feature_dim: 256
     hidden_dim: 512
-    layer: 2
+    layer: 3
     block_size: 200
     bidirectional: true
     mask: relu

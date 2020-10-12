@@ -21,7 +21,7 @@ from espnet2.utils.types import str2bool
 from espnet2.utils.types import str2triple_str
 from espnet2.utils.types import str_or_none
 from espnet2.enh.espnet_long_seq_model import ESPnetLongSeqModel
-from espnet2.enh.long_seq_nets.local_rnn import LongSeqMasking
+from espnet2.enh.long_seq_nets.long_seq_model import LongSeqMasking
 from espnet2.enh.utils.long_seq_stitching import get_stitch, get_connect_v2
 
 

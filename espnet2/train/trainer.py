@@ -57,6 +57,7 @@ else:
     def autocast(enabled=True):
         yield
 
+
     GradScaler = None
 
 
@@ -116,25 +117,25 @@ class Trainer:
 
     @classmethod
     def run(
-        cls,
-        model: AbsESPnetModel,
-        optimizers: Sequence[torch.optim.Optimizer],
-        schedulers: Sequence[Optional[AbsScheduler]],
-        train_iter_factory: AbsIterFactory,
-        valid_iter_factory: AbsIterFactory,
-        plot_attention_iter_factory: Optional[AbsIterFactory],
-        reporter: Reporter,
-        scaler: Optional[GradScaler],
-        output_dir: Path,
-        max_epoch: int,
-        seed: int,
-        patience: Optional[int],
-        keep_nbest_models: int,
-        early_stopping_criterion: Sequence[str],
-        best_model_criterion: Sequence[Sequence[str]],
-        val_scheduler_criterion: Sequence[str],
-        trainer_options,
-        distributed_option: DistributedOption,
+            cls,
+            model: AbsESPnetModel,
+            optimizers: Sequence[torch.optim.Optimizer],
+            schedulers: Sequence[Optional[AbsScheduler]],
+            train_iter_factory: AbsIterFactory,
+            valid_iter_factory: AbsIterFactory,
+            plot_attention_iter_factory: Optional[AbsIterFactory],
+            reporter: Reporter,
+            scaler: Optional[GradScaler],
+            output_dir: Path,
+            max_epoch: int,
+            seed: int,
+            patience: Optional[int],
+            keep_nbest_models: int,
+            early_stopping_criterion: Sequence[str],
+            best_model_criterion: Sequence[Sequence[str]],
+            val_scheduler_criterion: Sequence[str],
+            trainer_options,
+            distributed_option: DistributedOption,
     ) -> None:
         """Perform training. This method performs the main process of training."""
         assert check_argument_types()
@@ -180,6 +181,7 @@ class Trainer:
 
         start_time = time.perf_counter()
         for iepoch in range(start_epoch, max_epoch + 1):
+            model.iepoch = iepoch
             if iepoch != start_epoch:
                 logging.info(
                     "{}/{}epoch started. Estimated time to finish: {}".format(
@@ -323,15 +325,15 @@ class Trainer:
 
     @classmethod
     def train_one_epoch(
-        cls,
-        model: torch.nn.Module,
-        iterator: Iterable[Tuple[List[str], Dict[str, torch.Tensor]]],
-        optimizers: Sequence[torch.optim.Optimizer],
-        schedulers: Sequence[Optional[AbsScheduler]],
-        scaler: Optional[GradScaler],
-        reporter: SubReporter,
-        summary_writer: Optional[SummaryWriter],
-        options: TrainerOptions,
+            cls,
+            model: torch.nn.Module,
+            iterator: Iterable[Tuple[List[str], Dict[str, torch.Tensor]]],
+            optimizers: Sequence[torch.optim.Optimizer],
+            schedulers: Sequence[Optional[AbsScheduler]],
+            scaler: Optional[GradScaler],
+            reporter: SubReporter,
+            summary_writer: Optional[SummaryWriter],
+            options: TrainerOptions,
     ) -> bool:
         assert check_argument_types()
 
@@ -364,7 +366,7 @@ class Trainer:
 
         start_time = time.perf_counter()
         for iiter, (_, batch) in enumerate(
-            reporter.measure_iter_time(iterator, "iter_time"), 1
+                reporter.measure_iter_time(iterator, "iter_time"), 1
         ):
             assert isinstance(batch, dict), type(batch)
 
@@ -497,11 +499,11 @@ class Trainer:
     @classmethod
     @torch.no_grad()
     def validate_one_epoch(
-        cls,
-        model: torch.nn.Module,
-        iterator: Iterable[Dict[str, torch.Tensor]],
-        reporter: SubReporter,
-        options: TrainerOptions,
+            cls,
+            model: torch.nn.Module,
+            iterator: Iterable[Dict[str, torch.Tensor]],
+            reporter: SubReporter,
+            options: TrainerOptions,
     ) -> None:
         assert check_argument_types()
         ngpu = options.ngpu
@@ -541,13 +543,13 @@ class Trainer:
     @classmethod
     @torch.no_grad()
     def plot_attention(
-        cls,
-        model: torch.nn.Module,
-        output_dir: Optional[Path],
-        summary_writer: Optional[SummaryWriter],
-        iterator: Iterable[Tuple[List[str], Dict[str, torch.Tensor]]],
-        reporter: SubReporter,
-        options: TrainerOptions,
+            cls,
+            model: torch.nn.Module,
+            output_dir: Optional[Path],
+            summary_writer: Optional[SummaryWriter],
+            iterator: Iterable[Tuple[List[str], Dict[str, torch.Tensor]]],
+            reporter: SubReporter,
+            options: TrainerOptions,
     ) -> None:
         assert check_argument_types()
         import matplotlib

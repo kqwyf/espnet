@@ -1,9 +1,9 @@
-optim: adam
 init: xavier_uniform
 max_epoch: 150
 batch_type: folded
 batch_size:  16
 num_workers: 8
+optim: adam
 optim_conf:
     lr: 1.0e-03
     eps: 1.0e-08
@@ -28,7 +28,7 @@ scheduler_conf:
 enh: long_seq
 enh_conf:
     model: LocalRNN
-    loss_type: magnitude
+    loss_type: snr
     n_fft: 512
     window_size: 512
     hop_length: 256

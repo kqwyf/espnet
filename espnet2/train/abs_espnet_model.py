@@ -30,10 +30,11 @@ class AbsESPnetModel(torch.nn.Module, ABC):
         ...     @classmethod
         ...     def build_model(cls, args: argparse.Namespace) -> YourESPnetModel:
     """
+    iepoch = -1
 
     @abstractmethod
     def forward(
-        self, **batch: torch.Tensor
+            self, **batch: torch.Tensor
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
         raise NotImplementedError
 

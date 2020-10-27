@@ -8,9 +8,10 @@ set -o pipefail
 sample_rate=16k
 
 
-train_set="train"
-valid_set="dev"
-test_sets="test "
+train_set="train_3w"
+valid_set="dev_3w"
+test_sets="librscss_seg "
+# test_sets="test_ov60_clean "
 
 ./enh.sh \
     --max_wav_duration 500 \
@@ -19,6 +20,9 @@ test_sets="test "
     --test_sets "${test_sets}" \
     --fs "${sample_rate}" \
     --lang en \
+    --inference_model valid.loss.ave.pth \
     --ngpu 1 \
-    --enh_config ./conf/tuning/base_psm.yaml \
+    --gpu_inference true \
+    --inference_nj 1 \
+    --enh_config ./conf/tuning/base_psm_big.yaml \
     "$@"

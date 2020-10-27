@@ -19,10 +19,12 @@ from collections import OrderedDict
 class RNN_base(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layer=4, bidirectional=True, model='LocalRNN', embedding='rnn',
                  attention_dim=256, num_head=4, att_ff=1024, layer_per_block=1, layer_type="transformer",
+                 downsample_local=None, block_size=100,
                  hpooling=True, dropout=0):
         super(RNN_base, self).__init__()
 
         assert model in ['GlobalRNN', 'GlobalATT', 'LocalRNN', 'HRNN', 'LocalTransformer', 'GlobalTransformer',
+                         'GlobalTransformerV2',
                          'SPKRNN', 'SPKRNN_O'], "model can only be 'GlobalRNN', 'LocalRNN' or 'HRNN' "
         self.model = model
 
@@ -38,11 +40,12 @@ class RNN_base(nn.Module):
                     GlobalATT(self.input_dim, self.hidden_dim, bidirectional=bidirectional,
                               attention_dim=attention_dim, num_head=num_head, att_ff=att_ff,
                               dropout=dropout))
-            elif model in ['LocalTransformer', 'GlobalTransformer']:
+            elif model in ['LocalTransformer', 'GlobalTransformer', 'GlobalTransformerV2']:
                 self.layers.append(
                     getattr(sys.modules[__name__], model)(self.input_dim, dropout=dropout, num_blocks=layer_per_block,
                                                           num_head=num_head, att_ff=att_ff,
-                                                          idx=i, layer_type=layer_type)
+                                                          downsample_local=downsample_local,
+                                                          idx=i, layer_type=layer_type, block_size=block_size)
                 )
             else:
                 self.layers.append(
@@ -122,7 +125,7 @@ class LongSeqMasking(AbsEnhancement):
     def __init__(self, n_fft=512, hop_length=160, window_size=400, feature_dim=256, hidden_dim=128, layer=4,
                  num_spk=2, block_size=200, sr=16000, bidirectional=True, layer_per_block=1, model='LocalRNN',
                  embedding='rnn',
-                 attention_dim=256, num_head=4, att_ff=1024,
+                 attention_dim=256, num_head=4, att_ff=1024, downsample_local=None,
                  layer_type="transformer",
                  hpooling=True, dropout=0.0,
                  loss_type='magnitude', mask='relu', stitching_loss=False):
@@ -179,7 +182,8 @@ class LongSeqMasking(AbsEnhancement):
         self.separator = RNN_base(self.feature_dim, self.hidden_dim, num_layer=self.num_layer,
                                   bidirectional=bidirectional, model=self.model, embedding=embedding,
                                   attention_dim=attention_dim, num_head=num_head, att_ff=att_ff, layer_type=layer_type,
-                                  hpooling=hpooling, dropout=dropout, layer_per_block=layer_per_block)
+                                  downsample_local=downsample_local,
+                                  hpooling=hpooling, dropout=dropout, layer_per_block=layer_per_block, block_size=block_size)
 
         # mask estimation layer
         self.mask = nn.Sequential(nn.Conv2d(self.feature_dim, self.enc_dim * self.num_spk, 1),
@@ -300,7 +304,7 @@ if __name__ == '__main__':
 
     input = torch.rand((1, 16000 * 30)).cuda()
     net = LongSeqMasking(block_size=150, model='GlobalTransformer', n_fft=512,
-                         hop_length=256, window_size=512, layer=8, feature_dim=256,
+                         hop_length=256, window_size=512, layer=8, feature_dim=256, downsample_local=True,
                          att_ff=2048,
                          num_head=4,
                          layer_per_block=1).cuda()

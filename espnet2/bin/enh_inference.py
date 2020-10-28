@@ -105,10 +105,12 @@ def inference(
                 waves, *_= enh_model.enh_model.forward_rawwav(
                     batch["speech_mix"],[batch['ctx_1'], batch['ctx_2']], batch["speech_mix_lengths"]
                 )
+                waves = waves[0:num_spk]
             else:
                 waves, *_ = enh_model.enh_model.forward_rawwav(
                     batch["speech_mix"], batch["speech_mix_lengths"]
                 )
+                waves = waves[0:num_spk]
             assert len(waves[0]) == batch_size, len(waves[0])
 
         # FIXME(Chenda): will be incorrect when

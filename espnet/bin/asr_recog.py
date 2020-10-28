@@ -73,7 +73,7 @@ def get_parser():
     parser.add_argument(
         "--api",
         default="v1",
-        choices=["v1", "v2"],
+        choices=["v1", "v2", "embedding"],
         help="Beam search APIs "
         "v1: Default API. It only supports the ASRInterface.recognize method "
         "and DefaultRNNLM. "
@@ -295,6 +295,13 @@ def main(args):
                     from espnet.asr.pytorch_backend.recog import recog_v2
 
                     recog_v2(args)
+                elif args.api == "embedding":
+                    from espnet.asr.pytorch_backend.asr import recog_embedding
+                    if args.dtype != "float32":
+                        raise NotImplementedError(
+                            f"`--dtype {args.dtype}` is only available with `--api v2`"
+                        )
+                    recog_embedding(args)
                 else:
                     from espnet.asr.pytorch_backend.asr import recog
 
@@ -308,6 +315,13 @@ def main(args):
                     raise NotImplementedError(
                         f"--num-encs {args.num_encs} > 1 is not supported in --api v2"
                     )
+                elif args.api == "embedding":
+                    from espnet.asr.pytorch_backend.asr import recog_embedding
+                    if args.dtype != "float32":
+                        raise NotImplementedError(
+                            f"`--dtype {args.dtype}` is only available with `--api v2`"
+                        )
+                    recog_embedding(args)
                 else:
                     from espnet.asr.pytorch_backend.asr import recog
 

@@ -68,7 +68,6 @@ class ESPnetEnhancementModel(AbsESPnetModel):
         if stft_consistency and loss_type in ['mask_mse', 'si_snr']:
             raise ValueError(f"stft_consistency will not work when '{loss_type}'' loss is used")
             
-
         assert self.loss_type in ALL_LOSS_TYPES, self.loss_type
         # for multi-channel signal
         self.ref_channel = getattr(self.separator, "ref_channel", -1)
@@ -284,9 +283,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             # predict separated speech and masks
             if self.stft_consistency:
                 # pseudo STFT -> time-domain -> STFT (compute loss)
-                tmp_t_domain = [self.decoder(sp, speech_lengths)[0] for sp in spectrum_pre] 
-                spectrum_pre = [self.encoder(sp, speech_lengths)[0] for sp in tmp_t_domain] 
-                pass
+                tmp_t_domain = [self.decoder(sp, speech_lengths)[0] for sp in spectrum_pre]
+                spectrum_pre = [self.encoder(sp, speech_lengths)[0] for sp in tmp_t_domain]
 
             if spectrum_pre is not None and not isinstance(
                 spectrum_pre[0], ComplexTensor
@@ -597,8 +595,8 @@ class ESPnetEnhancementModel(AbsESPnetModel):
             criterion (function): Loss function
             perm (torch.Tensor): specified permutation (batch, num_spk)
         Returns:
-            loss (torch.Tensor): (batch)
-            perm (torch.Tensor): (batch, num_spk)
+            loss (torch.Tensor): minimum loss with the best permutation (batch)
+            perm (torch.Tensor): permutation for inf (batch, num_spk)
                                  e.g. tensor([[1, 0, 2], [0, 1, 2]])
         """
         assert len(ref) == len(inf), (len(ref), len(inf))

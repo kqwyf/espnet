@@ -14,7 +14,11 @@
 
 config: conf/tuning/train_enh_beamformer_no_wpe.yaml
 
-|dataset|STOI|SAR|SDR|SIR|
-|---|---|---|---|---|
-|enhanced_cv_spatialized_anechoic_multich|0.965245|24.4831|20.6248|23.7421|
-|enhanced_tt_spatialized_anechoic_multich|0.968908|24.3599|20.4742|23.5676|
+|dataset|PESQ|STOI|SAR|SDR|SIR|SI_SNR|
+|---|---|---|---|---|---|---|
+|enhanced_cv_spatialized_reverb_multich|2.89554|0.871864|11.9148|9.50443|16.7254|6.4575|
+|enhanced_tt_spatialized_reverb_multich|2.88883|0.87636|11.8577|9.39594|16.5588|6.38265|
+|enhanced_cv_spatialized_anechoic_multich|3.09721|0.937657|12.6048|11.7628|25.09|9.49375|
+|enhanced_tt_spatialized_anechoic_multich|3.02394|0.943056|12.5872|11.7275|25.0255|9.42349|
+|enhanced_cv_spatialized_anechoic_2ch|3.63867|0.97273|25.386|22.2414|26.0157|20.7877|
+|enhanced_tt_spatialized_anechoic_2ch|3.59756|0.975745|25.3675|22.251|26.017|20.8179|

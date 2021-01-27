@@ -40,6 +40,7 @@ class ESPnetEnhASRModel(AbsESPnetModel):
         cal_enh_loss: bool = True,
         end2end_train: bool = True,
         additional_utt_mvn: bool = False,
+        total_loss_scale: float = 1,
     ):
         assert check_argument_types()
         assert 0.0 <= asr_model.ctc_weight <= 1.0, asr_model.ctc_weight
@@ -57,6 +58,7 @@ class ESPnetEnhASRModel(AbsESPnetModel):
         self.enh_weight = enh_weight
         self.enh_return_type = enh_return_type  # 'waveform' or 'spectrum' or None
         self.cal_enh_loss = cal_enh_loss
+        self.total_loss_scale = total_loss_scale
 
         # TODO(Jing): find out the -1 or 0 here
         # self.idx_blank = token_list.index(sym_blank) # 0
@@ -182,7 +184,8 @@ class ESPnetEnhASRModel(AbsESPnetModel):
                         speech_mix_lengths,
                         speech_ref=speech_ref,
                     )
-                    # speech_pre: (bs,num_spk,T)
+                    # speech_pre: List[bs,T] --> (bs,num_spk,T)
+                    speech_pre = torch.stack(speech_pre, dim=1)
                     if speech_pre[:, 0].dim() == speech_mix.dim():
                         # single-channel input
                         assert speech_pre[:, 0].shape == speech_mix.shape, (
@@ -326,7 +329,9 @@ class ESPnetEnhASRModel(AbsESPnetModel):
             loss_enh = None
             loss = loss_asr
         else:
-            loss = (1 - self.enh_weight) * loss_asr + self.enh_weight * loss_enh
+            loss = self.total_loss_scale * (
+                (1 - self.enh_weight) * loss_asr + self.enh_weight * loss_enh
+            )
 
         stats = dict(
             loss=loss.detach(),
@@ -465,7 +470,7 @@ class ESPnetEnhASRModel(AbsESPnetModel):
                     speech_pre_list.append(torch.stack(batch_list, dim=0))
 
                 speech_pre = torch.stack(speech_pre_list, dim=0)  # bs,num_spk,...
-                speech_pre = torch.unbind(speech_pre, dim=1) # list[(bs,...)] of spk
+                speech_pre = torch.unbind(speech_pre, dim=1)  # list[(bs,...)] of spk
             else:
                 # speech_pre = torch.stack(speech_pre, dim=1)  # bs,num_spk,...
                 pass

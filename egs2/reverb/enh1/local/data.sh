@@ -68,17 +68,33 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
 
     # (1) Download 327 MB data to data/local/reverb_tools
     # (2) Generate 7861 WAV files in ${REVERB_OUT}/WSJCAM0/data/primary_microphone/si_tr for simulation (1.8 GB, 15h 32m 28s)
-    # (3) Simulate 62888 WAV files (training data) in ${REVERB_OUT}/REVERB_WSJCAM0_tr/data/mc_train/primary_microphone/si_tr
-    #     via MATLAB (15 GB, 124h 19m 46s)
-    local/generate_data.sh --wavdir ${REVERB_OUT} ${WSJCAM0}
-    local/prepare_simu_data.sh --wavdir ${REVERB_OUT} ${REVERB} ${WSJCAM0}
-    local/prepare_real_data.sh --wavdir ${REVERB_OUT} ${REVERB}
+    # (3) Simulate 62888 * 4 WAV files (training data) in 
+    #     ${REVERB_OUT}/REVERB_WSJCAM0_tr/data/mc_train/{observation,early,reverb_source,noise}/primary_microphone/si_tr
+    #     via MATLAB
+    #
+    #     NOTE: In additional to the original REVERB training data (observation), additional reference signals are generated
+    #           for training speech enhancement models, including:
+    #               - direct signal + early reflections (early)
+    #               - reverberated signal without noise (reverb_source)
+    #               - noise signal                      (noise)
+    # -----------------------------------------------------------------------------------
+    # directory       disk usage  duration      #samples
+    # -----------------------------------------------------------------------------------
+    # observation	  15 GiB      124h 19m 46s  7861 * 8 (8 channels for each utterance)
+    # early	          14 GiB      124h 19m 46s  7861 * 8 (8 channels for each utterance)
+    # reverb_source   15 GiB      124h 19m 46s  7861 * 8 (8 channels for each utterance)
+    # noise           11 GiB      124h 19m 46s  7861 * 8 (8 channels for each utterance)
+    # -------------------------------------------------------------------------du -sh ----------
+    # The simulation takes ~4.25 hours with Intel(R) Xeon(R) CPU E5-2678 v3 @ 2.50GHz.
+    local/generate_data.sh --wavdir "${REVERB_OUT}" "${WSJCAM0}"
+    local/prepare_simu_data.sh --wavdir "${REVERB_OUT}/observation" "${REVERB}" "${WSJCAM0}"
+    local/prepare_real_data.sh --wavdir "${REVERB_OUT}/observation" "${REVERB}"
 
     # Run WPE and Beamformit
     # This takes ~100 minutes with nj=50. Generated WAV files are in ${REVERB_OUT}/WPE.
     local/run_wpe.sh
-    # This takes ~100 minutes with nj=20.
-    local/run_beamform.sh ${REVERB_OUT}/WPE/
+    # This takes ~40 minutes with nj=20.
+    local/run_beamform.sh "${REVERB_OUT}/WPE/"
     # Download and install speech enhancement evaluation tools
     if [ ! -d local/REVERB_scores_source ] || [ ! -d local/REVERB_scores_source/REVERB-SPEENHA.Release04Oct/evaltools/SRMRToolbox ] || [ ! -f local/PESQ ]; then
         # download and install speech enhancement evaluation tools
@@ -88,10 +104,6 @@ fi
 
 if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     log "stage 2: Data preparation"
-
-    # Additionally use WSJ clean data. Otherwise the encoder decoder is not well trained
-    local/wsj_data_prep.sh ${WSJ0}/??-{?,??}.? ${WSJ1}/??-{?,??}.?
-    local/wsj_format_data.sh
 
     tasks="tr_simu_${nch_train}ch dt_simu_${nch_train}ch dt_real_${nch_train}ch"
     for setname in dt_simu_8ch dt_real_8ch et_simu_8ch et_real_8ch; do

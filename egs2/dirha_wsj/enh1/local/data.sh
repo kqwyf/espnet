@@ -96,9 +96,27 @@ EOF
 
     # Run Matlab (This takes ~8 hours with ref_mic=Beam_Circular_Array)
     # Expected data directories to be generated (~34 GB in total):
-    #   - data/Data/WSJ1_contaminated_mic_${ref_mic}/**/*.wav (96337)
-    #   - data/Data/WSJ0_contaminated_mic_${ref_mic}/**/*.wav (35487)
-    #   - data/Data/DIRHA_wsj_oracle_VAD_mic_${ref_mic}/{Real,Sim}/**/*.wav (818)
+    #   - ${outdir}/observation/{WSJ0,WSJ1}_contaminated_mic_${ref_mic}/**/*.wav
+    #   - ${outdir}/early/{WSJ0,WSJ1}_contaminated_mic_${ref_mic}/**/*.wav
+    #   - ${outdir}/source/{WSJ0,WSJ1}_contaminated_mic_${ref_mic}/**/*.wav
+    #   - ${outdir}/DIRHA_wsj_oracle_VAD_mic_${ref_mic}/{Real,Sim}/**/*.wav
+    #
+    #     NOTE: In additional to the original DIRHA_WSJ training data (observation), additional reference signals
+    #           are generated for training speech enhancement models, including:
+    #               - direct signal + early reflections (early)
+    #               - source signal                     (source)
+    # --------------------------------------------------------------------------------------
+    # directory                                        disk usage  duration      #samples
+    # --------------------------------------------------------------------------------------
+    # observation/WSJ0_contaminated_mic_${ref_mic}	   3.0 GiB                   35487
+    # observation/WSJ1_contaminated_mic_${ref_mic}	   7.2 GiB                   96337
+    # early/WSJ0_contaminated_mic_${ref_mic}	        GiB                      35487
+    # early/WSJ1_contaminated_mic_${ref_mic}	        GiB                      96337
+    # source/WSJ0_contaminated_mic_${ref_mic}          8.7 GiB                   35487
+    # source/WSJ1_contaminated_mic_${ref_mic}          25 GiB                    96337
+    # DIRHA_wsj_oracle_VAD_mic_${ref_mic}/Real         99 MB       49m 12s       409
+    # DIRHA_wsj_oracle_VAD_mic_${ref_mic}/Sim          102 MB      50m 43s       409
+    # --------------------------------------------------------------------------------------
     (
     cd local && \
     log "Log is in local/contaminate_wsj.log" && \
@@ -106,10 +124,11 @@ EOF
     )
 
     # Validate simulation is successfully finished
-    num_wsj1_wavs=$(find "${PWD}/data/Data/WSJ1_contaminated_mic_${ref_mic}" -type f -name "*.wav" | wc -l)
-    num_wsj0_wavs=$(find "${PWD}/data/Data/WSJ0_contaminated_mic_${ref_mic}" -type f -name "*.wav" | wc -l)
-    num_dirha_wavs=$(find "${PWD}/data/Data/DIRHA_wsj_oracle_VAD_mic_${ref_mic}" -type f -name "*.wav" | wc -l)
-    if [[ "${num_wsj1_wavs},${num_wsj0_wavs},${num_dirha_wavs}" != "96337,35487,818" ]]; then
+    num_wsj1_wavs=$(find "${outdir}/*/WSJ1_contaminated_mic_${ref_mic}" -type f -name "*.wav" | wc -l)
+    num_wsj0_wavs=$(find "${outdir}/*/WSJ0_contaminated_mic_${ref_mic}" -type f -name "*.wav" | wc -l)
+    num_dirha_wavs=$(find "${outdir}/DIRHA_wsj_oracle_VAD_mic_${ref_mic}" -type f -name "*.wav" | wc -l)
+    if [[ "${num_wsj1_wavs},${num_wsj0_wavs},${num_dirha_wavs}" != "289011,106461,818" ]]; then
+        log "${num_wsj1_wavs},${num_wsj0_wavs},${num_dirha_wavs} != 289011,106461,818"
         log "Error: Simulation failed! See local/contaminate_wsj.log for more information"
         exit 1;
     fi
@@ -119,8 +138,8 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     log "stage 2: ASR Data Preparation"
 
     # train data (data/train_si284_Beam_Circular_Array)
-    wsj0_contaminated_folder=WSJ0_contaminated_mic_${ref_mic} # path of the wsj0 training data
-    wsj1_contaminated_folder=WSJ1_contaminated_mic_${ref_mic} # path of the wsj1 training data
+    wsj0_contaminated_folder="observation/WSJ0_contaminated_mic_${ref_mic}" # path of the wsj0 training data
+    wsj1_contaminated_folder="observation/WSJ1_contaminated_mic_${ref_mic}" # path of the wsj1 training data
     local/wsj_data_prep.sh ${outdir}/$wsj0_contaminated_folder/??-{?,??}.? ${outdir}/$wsj1_contaminated_folder/??-{?,??}.? || exit 1;
     local/wsj_format_data.sh ${ref_mic} || exit 1;
 
@@ -133,10 +152,10 @@ fi
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     log "stage 3: Enhancement Data Preparation"
 
-    # train data (data/train_si284_Beam_Circular_Array)
-
-    # driha test data (data/dirha_sim_Beam_Circular_Array)
+    # NOTE: the scale of the source signal is not strictly consistent with the observation signal,
+    # see L146-L153 in local/tools/Data_Contamination.m for more details.
     
+    # train data (data/train_si284_Beam_Circular_Array)
 fi
 
 other_text=data/local/other_text/text

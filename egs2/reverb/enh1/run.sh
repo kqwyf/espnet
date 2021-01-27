@@ -6,7 +6,7 @@ set -u
 set -o pipefail
 
 
-# number of training channels
+# number of training channels (any integer in the range [2, 8])
 nch_train=2
 
 train_set="tr_simu_${nch_train}ch"

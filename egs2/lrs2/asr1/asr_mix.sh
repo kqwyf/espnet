@@ -83,6 +83,9 @@ asr_args=   # Arguments for asr model training, e.g., "--max_epoch 10".
 feats_normalize=global_mvn  # Normalizaton layer type
 num_splits_asr=1   # Number of splitting for lm corpus
 spk_num=2   # Number of speakers
+additional_features=
+additional_feature_type=kaldi_ark
+additional_feature_num=1
 
 # Decoding related
 inference_tag=    # Suffix to the result dir for decoding.
@@ -175,6 +178,8 @@ Options:
     --feats_normalize # Normalizaton layer type (default="${feats_normalize}").
     --num_splits_asr=1   # Number of splitting for lm corpus  (default="${num_splits_asr}").
     --spk_num    # Number of speakers in the input audio (default="${spk_num}")
+    --additional_features   # Name of additional features, e.g. --additional_features v
+    --additional_feature_num # Number of additional features
 
     # Decoding related
     --inference_tag       # Suffix to the result dir for decoding (default="${inference_tag}").
@@ -399,62 +404,75 @@ if ! "${skip_data_prep}"; then
                     --audio-format "${audio_format}" --fs "${fs}" ${_opts} \
                     "data/${dset}/wav.scp" "${data_feats}${_suf}/${dset}"
 
-                echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
-            done
+                # copy additional features to ${data_feats} dir
+                if [ -n "${additional_features}" ]; then
+                    additional_features_list=" "
+                    for i in $(seq ${additional_feature_num}); do
+                        additional_features_list+="${additional_features}${i}.scp "
+                    done
 
-        elif [ "${feats_type}" = fbank_pitch ]; then
-            log "[Require Kaldi] Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+                    for af in ${additional_features_list}; do
+                        cp "data/${dset}/${af}" "${data_feats}${_suf}/${dset}"
+                    done
 
-            for dset in "${train_set}" "${valid_set}" ${test_sets}; do
-                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
-                    _suf="/org"
-                else
-                    _suf=""
                 fi
-                # 1. Copy datadir
-                utils/copy_data_dir.sh data/"${dset}" "${data_feats}${_suf}/${dset}"
-
-                # 2. Feature extract
-                _nj=$(min "${nj}" "$(<"${data_feats}${_suf}/${dset}/utt2spk" wc -l)")
-                steps/make_fbank_pitch.sh --nj "${_nj}" --cmd "${train_cmd}" "${data_feats}${_suf}/${dset}"
-                utils/fix_data_dir.sh "${data_feats}${_suf}/${dset}"
-
-                # 3. Derive the the frame length and feature dimension
-                scripts/feats/feat_to_shape.sh --nj "${_nj}" --cmd "${train_cmd}" \
-                    "${data_feats}${_suf}/${dset}/feats.scp" "${data_feats}${_suf}/${dset}/feats_shape"
-
-                # 4. Write feats_dim
-                head -n 1 "${data_feats}${_suf}/${dset}/feats_shape" | awk '{ print $2 }' \
-                    | cut -d, -f2 > ${data_feats}${_suf}/${dset}/feats_dim
-
-                # 5. Write feats_type
-                echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
-            done
-
-        elif [ "${feats_type}" = fbank ]; then
-            log "Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
-            log "${feats_type} is not supported yet."
-            exit 1
-
-        elif  [ "${feats_type}" = extracted ]; then
-            log "Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
-            # Assumming you don't have wav.scp, but feats.scp is created by local/data.sh instead.
-
-            for dset in "${train_set}" "${valid_set}" ${test_sets}; do
-                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
-                    _suf="/org"
-                else
-                    _suf=""
-                fi
-                # Generate dummy wav.scp to avoid error by copy_data_dir.sh
-                <data/"${dset}"/cmvn.scp awk ' { print($1,"<DUMMY>") }' > data/"${dset}"/wav.scp
-                utils/copy_data_dir.sh data/"${dset}" "${data_feats}${_suf}/${dset}"
-
-                pyscripts/feats/feat-to-shape.py "scp:head -n 1 ${data_feats}${_suf}/${dset}/feats.scp |" - | \
-                    awk '{ print $2 }' | cut -d, -f2 > "${data_feats}${_suf}/${dset}/feats_dim"
 
                 echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
             done
+
+        #elif [ "${feats_type}" = fbank_pitch ]; then
+        #    log "[Require Kaldi] Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+
+        #    for dset in "${train_set}" "${valid_set}" ${test_sets}; do
+        #        if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
+        #            _suf="/org"
+        #        else
+        #            _suf=""
+        #        fi
+        #        # 1. Copy datadir
+        #        utils/copy_data_dir.sh data/"${dset}" "${data_feats}${_suf}/${dset}"
+
+        #        # 2. Feature extract
+        #        _nj=$(min "${nj}" "$(<"${data_feats}${_suf}/${dset}/utt2spk" wc -l)")
+        #        steps/make_fbank_pitch.sh --nj "${_nj}" --cmd "${train_cmd}" "${data_feats}${_suf}/${dset}"
+        #        utils/fix_data_dir.sh "${data_feats}${_suf}/${dset}"
+
+        #        # 3. Derive the the frame length and feature dimension
+        #        scripts/feats/feat_to_shape.sh --nj "${_nj}" --cmd "${train_cmd}" \
+        #            "${data_feats}${_suf}/${dset}/feats.scp" "${data_feats}${_suf}/${dset}/feats_shape"
+
+        #        # 4. Write feats_dim
+        #        head -n 1 "${data_feats}${_suf}/${dset}/feats_shape" | awk '{ print $2 }' \
+        #            | cut -d, -f2 > ${data_feats}${_suf}/${dset}/feats_dim
+
+        #        # 5. Write feats_type
+        #        echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
+        #    done
+
+        #elif [ "${feats_type}" = fbank ]; then
+        #    log "Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+        #    log "${feats_type} is not supported yet."
+        #    exit 1
+
+        #elif  [ "${feats_type}" = extracted ]; then
+        #    log "Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+        #    # Assumming you don't have wav.scp, but feats.scp is created by local/data.sh instead.
+
+        #    for dset in "${train_set}" "${valid_set}" ${test_sets}; do
+        #        if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
+        #            _suf="/org"
+        #        else
+        #            _suf=""
+        #        fi
+        #        # Generate dummy wav.scp to avoid error by copy_data_dir.sh
+        #        <data/"${dset}"/cmvn.scp awk ' { print($1,"<DUMMY>") }' > data/"${dset}"/wav.scp
+        #        utils/copy_data_dir.sh data/"${dset}" "${data_feats}${_suf}/${dset}"
+
+        #        pyscripts/feats/feat-to-shape.py "scp:head -n 1 ${data_feats}${_suf}/${dset}/feats.scp |" - | \
+        #            awk '{ print $2 }' | cut -d, -f2 > "${data_feats}${_suf}/${dset}/feats_dim"
+
+        #        echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
+        #    done
 
         else
             log "Error: not supported: --feats_type ${feats_type}"
@@ -472,6 +490,15 @@ if ! "${skip_data_prep}"; then
             # Copy data dir
             utils/copy_data_dir.sh "${data_feats}/org/${dset}" "${data_feats}/${dset}"
             cp "${data_feats}/org/${dset}/feats_type" "${data_feats}/${dset}/feats_type"
+            if [ -n "${additional_features}" ]; then
+                additional_features_list=" "
+                for i in $(seq ${additional_feature_num}); do
+                    additional_features_list+="${additional_features}${i}.scp "
+                done
+                for af in ${additional_features_list}; do
+                    cp "${data_feats}/org/${dset}/${af}" "${data_feats}/${dset}/${af}"
+                done
+            fi
 
             # Remove short utterances
             _feats_type="$(<${data_feats}/${dset}/feats_type)"
@@ -524,6 +551,7 @@ if ! "${skip_data_prep}"; then
             for spk in $(seq "${spk_num}"); do
                 utt_extra_files+="text_spk${spk} "
             done
+            utt_extra_files+="${additional_features_list} "
             # fix_data_dir.sh leaves only utts which exist in all files
             utils/fix_data_dir.sh --utt_extra_files "${utt_extra_files}" "${data_feats}/${dset}"
         done
@@ -983,6 +1011,13 @@ if ! "${skip_train}"; then
             done
         fi
 
+        if [ -n "${additional_features}" ]; then
+            for i in $(seq ${additional_feature_num}); do
+                _train_data_param+="--train_data_path_and_name_and_type ${_asr_train_dir}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
+                _valid_data_param+="--valid_data_path_and_name_and_type ${_asr_valid_dir}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
+            done
+        fi
+
         log "Generate '${asr_exp}/run.sh'. You can resume the process from stage 10 using this script"
         mkdir -p "${asr_exp}"; echo "${run_args} --stage 10 \"\$@\"; exit \$?" > "${asr_exp}/run.sh"; chmod +x "${asr_exp}/run.sh"
 
@@ -1111,6 +1146,13 @@ if ! "${skip_eval}"; then
                 _type=kaldi_ark
             fi
 
+            _additional_features=
+            if [ -n "${additional_features}" ]; then
+                for i in $(seq ${additional_feature_num}); do
+                _additional_features+="--data_path_and_name_and_type ${_data}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
+                done
+            fi
+
             # 1. Split the key file
             key_file=${_data}/${_scp}
             split_scps=""
@@ -1127,7 +1169,7 @@ if ! "${skip_eval}"; then
             ${_cmd} --gpu "${_ngpu}" JOB=1:"${_nj}" "${_logdir}"/asr_inference.JOB.log \
                 ${python} -m espnet2.bin.asr_mix_inference \
                     --ngpu "${_ngpu}" \
-                    --data_path_and_name_and_type "${_data}/${_scp},speech,${_type}" \
+                    --data_path_and_name_and_type "${_data}/${_scp},speech,${_type}" ${_additional_features} \
                     --key_file "${_logdir}"/keys.JOB.scp \
                     --asr_train_config "${asr_exp}"/config.yaml \
                     --asr_model_file "${asr_exp}"/"${inference_asr_model}" \

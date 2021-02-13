@@ -31,7 +31,7 @@ log "$0 $*"
 
 
 if [ ! -e "${LRS2}" ]; then
-    log "Fill the value of 'WSJ0' of db.sh"
+    log "Fill the value of 'LRS2' of db.sh"
     exit 1
 fi
 

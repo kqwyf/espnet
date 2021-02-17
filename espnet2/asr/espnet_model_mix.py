@@ -60,6 +60,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         report_wer: bool = True,
         sym_space: str = "<space>",
         sym_blank: str = "<blank>",
+        fixed_perm: Optional[List[int]] = None,
     ):
         assert check_argument_types()
         assert 0.0 <= ctc_weight <= 1.0, ctc_weight
@@ -76,6 +77,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
 
         self.num_spkrs = encoder.num_spkrs
         self.pit = PIT(self.num_spkrs)
+        self.fixed_perm = fixed_perm
 
         self.frontend = frontend
         self.specaug = specaug
@@ -188,9 +190,15 @@ class ESPnetASRMixModel(AbsESPnetModel):
         if self.ctc_weight == 0.0:
             loss_ctc, cer_ctc, min_perm = None, None, None
         else:
-            loss_ctc, cer_ctc, min_perm = self._calc_ctc_loss(
-                encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=None
-            )
+            if self.fixed_perm:
+                fixed_perm = torch.tensor([self.fixed_perm] * batch_size, device=encoder_out[0].device)
+                loss_ctc, cer_ctc, min_perm = self._calc_ctc_loss(
+                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=fixed_perm
+                )
+            else:
+                loss_ctc, cer_ctc, min_perm = self._calc_ctc_loss(
+                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=None
+                )
 
         # 2b. Attention-decoder branch
         if self.ctc_weight == 1.0:
@@ -399,15 +407,18 @@ class ESPnetASRMixModel(AbsESPnetModel):
                 ys_pad_new[:, i] = ys_pad_new[min_perm[i], i]
                 ys_pad_lens_new[:, i] = ys_pad_lens_new[min_perm[i], i]
             loss_ctc = torch.mean(
-                [
-                    self.ctc(
-                        encoder_out[i],
-                        encoder_out_lens[i],
-                        ys_pad_new[i],
-                        ys_pad_lens_new[i],
-                    )
-                    for i in range(self.num_spkrs)
-                ]
+                torch.stack(
+                    [
+                        self.ctc(
+                            encoder_out[i],
+                            encoder_out_lens[i],
+                            ys_pad_new[i],
+                            ys_pad_lens_new[i],
+                        )
+                        for i in range(self.num_spkrs)
+                    ],
+                    dim=1,
+                )
             )
 
         # Calc CER using CTC

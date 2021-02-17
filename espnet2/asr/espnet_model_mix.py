@@ -20,7 +20,9 @@ from espnet.nets.pytorch_backend.transformer.label_smoothing_loss import (
 )
 from espnet2.asr.ctc import CTC
 from espnet2.asr.decoder.abs_decoder import AbsDecoder
+from espnet2.asr.decoder.abs_av_decoder import AbsAVDecoder
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
+from espnet2.asr.encoder.abs_av_encoder import AbsAVEncoder
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet2.asr.specaug.abs_specaug import AbsSpecAug
 from espnet2.layers.abs_normalize import AbsNormalize
@@ -130,6 +132,24 @@ class ESPnetASRMixModel(AbsESPnetModel):
         assert all(txt_length.dim() == 1 for txt_length in text_ref_lengths), (
             txt_length.shape for txt_length in text_ref_lengths
         )
+        # additional visual input
+        additional = {}
+        if 'additional_v1' in kwargs:
+            visuals = [kwargs["additional_v{}".format(
+                n + 1)] for n in range(self.num_spkrs)]
+            visual_length = kwargs['additional_v1_lengths']
+        elif 'additional_video1' in kwargs:
+            visuals = [kwargs["additional_video{}".format(
+                n + 1)] for n in range(self.num_spkrs)]
+            visual_length = kwargs['additional_video1_lengths']
+        else:
+            visuals = None
+        if visuals:
+            visuals = [v[:, :visual_length.max(), :] for v in visuals]
+            additional['visual'] = visuals
+            additional['visual_length'] = visual_length
+        if len(additional) == 0:
+            additional = None
         # Check that batch_size is unified
         batch_size = speech.shape[0]
         assert batch_size == speech_lengths.shape[0], (
@@ -162,7 +182,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         ]
 
         # 1. Encoder
-        encoder_out, encoder_out_lens = self.encode(speech, speech_lengths)
+        encoder_out, encoder_out_lens, encoder_additional_out = self.encode(speech, speech_lengths, additional)
 
         # 2a. CTC branch
         if self.ctc_weight == 0.0:
@@ -177,7 +197,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
             loss_att, acc_att, cer_att, wer_att = None, None, None, None
         else:
             loss_att, acc_att, cer_att, wer_att, min_perm = self._calc_att_loss(
-                encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=min_perm
+                encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=min_perm, additional=encoder_additional_out
             )
 
         # 2c. RNN-T branch
@@ -214,7 +234,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         return {"feats": feats, "feats_lengths": feats_lengths}
 
     def encode(
-        self, speech: torch.Tensor, speech_lengths: torch.Tensor
+        self, speech: torch.Tensor, speech_lengths: torch.Tensor, additional: Optional[Dict]=None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Frontend + Encoder. Note that this method is used by asr_inference.py
 
@@ -237,7 +257,12 @@ class ESPnetASRMixModel(AbsESPnetModel):
         # 4. Forward encoder
         # feats: (Batch, Length, Dim)
         # -> encoder_out: List[Tensor(Batch, Length2, Dim2)]
-        encoder_out, encoder_out_lens, _ = self.encoder(feats, feats_lengths)
+        # -> encoder_additional_out: List[Dict]
+        encoder_additional_out = None
+        if isinstance(self.encoder, AbsAVEncoder):
+            encoder_out, encoder_out_lens, _, encoder_additional_out = self.encoder(feats, feats_lengths, additional)
+        else:
+            encoder_out, encoder_out_lens, _ = self.encoder(feats, feats_lengths)
 
         assert isinstance(encoder_out, list), type(encoder_out)
         batchsize = speech.size(0)
@@ -248,7 +273,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
                 encoder_out_lens[i].max(),
             )
 
-        return encoder_out, encoder_out_lens
+        return encoder_out, encoder_out_lens, encoder_additional_out
 
     def _extract_feats(
         self, speech: torch.Tensor, speech_lengths: torch.Tensor
@@ -276,6 +301,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         ys_pad: List[torch.Tensor],
         ys_pad_lens: List[torch.Tensor],
         perm=None,
+        additional=None,
     ):
         if perm is None:
             raise NotImplementedError
@@ -298,9 +324,14 @@ class ESPnetASRMixModel(AbsESPnetModel):
             ys_in_lens = ys_pad_lens_new[spk] + 1
 
             # 1. Forward decoder
-            dec_out, _ = self.decoder(
-                encoder_out[spk], encoder_out_lens[spk], ys_in_pad, ys_in_lens
-            )
+            if isinstance(self.decoder, AbsAVDecoder):
+                dec_out, _ = self.decoder(
+                    encoder_out[spk], encoder_out_lens[spk], additional[spk], ys_in_pad, ys_in_lens
+                )
+            else:
+                dec_out, _ = self.decoder(
+                    encoder_out[spk], encoder_out_lens[spk], ys_in_pad, ys_in_lens
+                )
             decoder_out.append(dec_out)
 
             # 2. Compute attention loss

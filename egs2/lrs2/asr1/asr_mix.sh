@@ -649,7 +649,7 @@ if ! "${skip_train}"; then
                 for spk in ${_spk_list}; do
                     awk '{print "'$spk'_"$0}' "${data_feats}/${train_set}/text_${spk}" > "${data_feats}/srctexts_${spk}"
                     awk '{print "'$spk'_"$0}' "${data_feats}/${valid_set}/text_${spk}" > "${data_feats}/valid_srctexts_${spk}"
-                    awk '{print "'$spk'_"$0}' "${data_feats}/org/${test_sets}/text_${spk}" > "${data_feats}/test_srctexts_${spk}"
+                    awk '{print "'$spk'_"$0}' "${data_feats}/${test_sets}/text_${spk}" > "${data_feats}/test_srctexts_${spk}"
                 done
                 cat ${data_feats}/srctexts_spk* | awk ' { if( NF != 1 ) print $0; } '  > "${data_feats}/srctexts_with_spk"
                 cat ${data_feats}/valid_srctexts_spk* | awk ' { if( NF != 1 ) print $0; } '  > "${data_feats}/valid_srctexts_with_spk"
@@ -1011,13 +1011,6 @@ if ! "${skip_train}"; then
             done
         fi
 
-        if [ -n "${additional_features}" ]; then
-            for i in $(seq ${additional_feature_num}); do
-                _train_data_param+="--train_data_path_and_name_and_type ${_asr_train_dir}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
-                _valid_data_param+="--valid_data_path_and_name_and_type ${_asr_valid_dir}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
-            done
-        fi
-
         log "Generate '${asr_exp}/run.sh'. You can resume the process from stage 10 using this script"
         mkdir -p "${asr_exp}"; echo "${run_args} --stage 10 \"\$@\"; exit \$?" > "${asr_exp}/run.sh"; chmod +x "${asr_exp}/run.sh"
 
@@ -1038,6 +1031,13 @@ if ! "${skip_train}"; then
             _valid_shape_param+="--valid_shape_file ${asr_stats_dir}/valid/text_ref${spk}_shape.${token_type} "
             _fold_length_param+="--fold_length ${asr_text_fold_length} "
         done
+
+        if [ -n "${additional_features}" ]; then
+            for i in $(seq ${additional_feature_num}); do
+                _opts+="--train_data_path_and_name_and_type ${_asr_train_dir}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
+                _valid_data_param+="--valid_data_path_and_name_and_type ${_asr_valid_dir}/${additional_features}${i}.scp,additional_${additional_features}${i},${additional_feature_type} "
+            done
+        fi
 
         # shellcheck disable=SC2086
         ${python} -m espnet2.bin.launch \

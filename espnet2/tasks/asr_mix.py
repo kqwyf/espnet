@@ -14,6 +14,7 @@ from typeguard import check_return_type
 
 from espnet2.asr.ctc import CTC
 from espnet2.asr.decoder.abs_decoder import AbsDecoder
+from espnet2.asr.decoder.abs_av_decoder import AbsAVDecoder
 from espnet2.asr.decoder.rnn_decoder import RNNDecoder
 from espnet2.asr.decoder.transformer_decoder import (
     DynamicConvolution2DTransformerDecoder,  # noqa: H301
@@ -29,6 +30,7 @@ from espnet2.asr.decoder.transformer_decoder import TransformerDecoder
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
 from espnet2.asr.encoder.rnn_encoder_mix import RNNEncoderMix
 from espnet2.asr.encoder.transformer_encoder_mix import TransformerEncoderMix
+from espnet2.asr.encoder.av_transformer_encoder_mix import AV_TransformerEncoderMix
 from espnet2.asr.encoder.vgg_rnn_encoder_mix import VGGRNNEncoderMix
 from espnet2.asr.espnet_model_mix import ESPnetASRMixModel
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
@@ -77,6 +79,7 @@ encoder_choices = ClassChoices(
     "encoder",
     classes=dict(
         transformer=TransformerEncoderMix,
+        av_transformer=AV_TransformerEncoderMix,
         vgg_rnn=VGGRNNEncoderMix,
         rnn=RNNEncoderMix,
     ),
@@ -265,6 +268,8 @@ class ASRMixTask(AbsTask):
     ) -> Tuple[str, ...]:
         retval = []
         retval += ["text_ref{}".format(n) for n in range(2, MAX_REFERENCE_NUM + 1)]
+        retval += ["additional_v{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
+        retval += ["additional_video{}".format(n) for n in range(1, MAX_REFERENCE_NUM + 1)]
         retval = tuple(retval)
         assert check_return_type(retval)
         return retval
@@ -319,11 +324,19 @@ class ASRMixTask(AbsTask):
         # 5. Decoder
         decoder_class = decoder_choices.get_class(args.decoder)
 
-        decoder = decoder_class(
-            vocab_size=vocab_size,
-            encoder_output_size=encoder.output_size(),
-            **args.decoder_conf,
-        )
+        if issubclass(decoder_class, AbsAVDecoder):
+            decoder = decoder_class(
+                vocab_size=vocab_size,
+                encoder_output_size=encoder.output_size(),
+                encoder_output_size_v=encoder.output_size_v(),
+                **args.decoder_conf,
+            )
+        else:
+            decoder = decoder_class(
+                vocab_size=vocab_size,
+                encoder_output_size=encoder.output_size(),
+                **args.decoder_conf,
+            )
 
         # 6. CTC
         ctc = CTC(

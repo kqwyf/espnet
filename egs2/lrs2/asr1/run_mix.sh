@@ -9,15 +9,14 @@ min_or_max=max # Must be "max" for asr. This is to determine how the mixtures ar
 sample_rate=16k
 
 
-train_set="tr_${min_or_max}_${sample_rate}"
-valid_set="cv_${min_or_max}_${sample_rate}"
-test_sets="tt_${min_or_max}_${sample_rate}"
+train_set="train_${min_or_max}_2mix"
+valid_set="val_${min_or_max}_2mix"
+test_sets="test_${min_or_max}_2mix"
 
 ./asr_mix.sh \
     --lang "en" \
     --nbpe 5000 \
     --max_wav_duration 15 \
-    --nlsyms_txt data/nlsyms.txt \
     --token_type char \
     --lm_config conf/tuning/train_lm.yaml \
     --asr_config conf/tuning/train_asr_transformer_mix.yaml \
@@ -27,5 +26,7 @@ test_sets="tt_${min_or_max}_${sample_rate}"
     --fs "${sample_rate}" \
     --ngpu 4 \
     --local_data_opts "--sample_rate ${sample_rate} --min_or_max ${min_or_max}" \
-    --srctexts "data/train_si284/text data/local/other_text/text" "$@"
+    --srctexts "data/train/text" \
+    --additional_features v \
+    --additional_feature_num 2 \
     "$@"

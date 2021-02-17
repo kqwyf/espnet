@@ -20,10 +20,8 @@ stage=1
 stop_stage=6
 
 min_or_max=max # min, max, or fix
-pretrain_model=none # lrw or unsupervised or none
+pretrain_model=lrw # lrw or unsupervised or none
 pretrain_model_path=./local/unsupervised/exp/models/3.pt
-other_text=data/local/other_text/text
-nlsyms=data/nlsyms.txt
 sample_rate=8k
 
 log "$0 $*"

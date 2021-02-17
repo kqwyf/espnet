@@ -108,8 +108,8 @@ def main():
             writter_spk1[mix_key] = 16000, wav_1
             writter_spk2[mix_key] = 16000, wav_2
             writter_mix[mix_key] = 16000, mixture
-            writter_text_spk1.write(mix_key + " " + text_sources[key_1] + "\n")
-            writter_text_spk2.write(mix_key + " " + text_sources[key_2] + "\n")
+            writter_text_spk1.write(mix_key + " " + text_sources[key_1])
+            writter_text_spk2.write(mix_key + " " + text_sources[key_2])
             
 
     writter_mix.close()

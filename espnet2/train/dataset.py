@@ -29,6 +29,7 @@ from espnet2.fileio.rand_gen_dataset import IntRandomGenerateDataset
 from espnet2.fileio.read_text import load_num_sequence_text
 from espnet2.fileio.read_text import read_2column_text
 from espnet2.fileio.sound_scp import SoundScpReader
+from espnet2.fileio.video_scp import VideoScpReader
 from espnet2.utils.sized_dict import SizedDict
 
 
@@ -239,6 +240,15 @@ DATA_TYPES = {
         "\n\n"
         "   utterance_id_A 3,4\n"
         "   utterance_id_B 10,4\n"
+        "   ...",
+    ),
+    "video": dict(
+        func=VideoScpReader,
+        kwargs=[],
+        help="Video format types which supported by mp4, etc."
+        "\n\n"
+        "   utterance_id_a a.mp4\n"
+        "   utterance_id_b b.mp4\n"
         "   ...",
     ),
 }

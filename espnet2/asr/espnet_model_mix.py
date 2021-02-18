@@ -204,9 +204,15 @@ class ESPnetASRMixModel(AbsESPnetModel):
         if self.ctc_weight == 1.0:
             loss_att, acc_att, cer_att, wer_att = None, None, None, None
         else:
-            loss_att, acc_att, cer_att, wer_att, min_perm = self._calc_att_loss(
-                encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=min_perm, additional=encoder_additional_out
-            )
+            if self.fixed_perm:
+                fixed_perm = torch.tensor([self.fixed_perm] * batch_size, device=encoder_out[0].device)
+                loss_att, acc_att, cer_att, wer_att, min_perm = self._calc_att_loss(
+                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=fixed_perm, additional=encoder_additional_out
+                )
+            else:
+                loss_att, acc_att, cer_att, wer_att, min_perm = self._calc_att_loss(
+                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=min_perm, additional=encoder_additional_out
+                )
 
         # 2c. RNN-T branch
         if self.rnnt_decoder is not None:

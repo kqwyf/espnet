@@ -5,6 +5,7 @@
 from typing import Optional
 from typing import Tuple
 from typing import Dict
+from typing import List
 
 import torch
 from typeguard import check_argument_types
@@ -153,6 +154,21 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
     def output_size_v(self) -> int:
         return self._output_size_v
 
+    def _repaint_visual_paddings(self, visuals: List[torch.Tensor], visual_lengths: List[torch.LongTensor]) -> List[torch.Tensor]:
+        """
+        Repad the padded value by 0.
+        """
+        assert len(visuals[0].shape) == 3 # (B, L, D)
+        batch_size, _, dim = visuals[0].shape
+        visuals_ = []
+        for vs, v_lens in zip(visuals, visual_lengths):
+            l = v_lens.max()
+            vs_ = torch.zeros((batch_size, l, dim), device=vs.device)
+            for i in range(len(vs)):
+                vs_[i, :v_lens[i]] += vs[i, :v_lens[i]]
+            visuals_.append(vs_)
+        return visuals_
+
     def forward(
         self,
         xs_pad: torch.Tensor,
@@ -170,6 +186,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
             position embedded tensor and mask
         """
         visuals = additional['visual']
+        visual_lengths = additional['visual_length']
         masks = (~make_pad_mask(ilens)[:, None, :]).to(xs_pad.device)
 
         if (
@@ -181,8 +198,9 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
             xs_pad, masks = self.embed(xs_pad, masks)
         else:
             xs_pad = self.embed(xs_pad)
-        for i, v in enumerate(visuals):
-            assert abs(v.shape[1] * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'length of visual input {i} is {v.shape[1]}, which is too long or too short comparing with speech feat length {xs_pad.shape[1]}.'
+
+        assert abs(max([v.shape[1] for v in visuals]) * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'Max length of visual input {i} is {v.shape[1]}, which is too long or too short comparing with max speech feat length {xs_pad.shape[1]}.'
+        visuals = self._repaint_visual_paddings(visuals, visual_lengths)
         visuals = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
         xs_pad = torch.cat((xs_pad, *visuals), dim=2)
         xs_sd, masks_sd = [None] * self.num_spkrs, [None] * self.num_spkrs

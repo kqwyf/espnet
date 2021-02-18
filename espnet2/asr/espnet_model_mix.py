@@ -139,17 +139,19 @@ class ESPnetASRMixModel(AbsESPnetModel):
         if 'additional_v1' in kwargs:
             visuals = [kwargs["additional_v{}".format(
                 n + 1)] for n in range(self.num_spkrs)]
-            visual_length = kwargs['additional_v1_lengths']
+            visual_lengths = [kwargs["additional_v{}_lengths".format(
+                n + 1)] for n in range(self.num_spkrs)]
         elif 'additional_video1' in kwargs:
             visuals = [kwargs["additional_video{}".format(
                 n + 1)] for n in range(self.num_spkrs)]
-            visual_length = kwargs['additional_video1_lengths']
+            visual_lengths = [kwargs["additional_video{}_lengths".format(
+                n + 1)] for n in range(self.num_spkrs)]
         else:
             visuals = None
         if visuals:
-            visuals = [v[:, :visual_length.max(), :] for v in visuals]
+            visuals = [v[:, :v_len.max(), :] for v, v_len in zip(visuals, visual_lengths)]
             additional['visual'] = visuals
-            additional['visual_length'] = visual_length
+            additional['visual_length'] = visual_lengths
         if len(additional) == 0:
             additional = None
         # Check that batch_size is unified

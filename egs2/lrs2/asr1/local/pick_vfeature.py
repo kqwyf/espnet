@@ -76,11 +76,12 @@ def main():
                 l = min(len_1, len_2)
                 v_1, v_2 = v_1[0:l], v_2[0:l]
             elif args.min_or_max == 'max':
-                l = max(len_1, len_2)
-                v_1_, v_2_ = np.zeros((l, dim)), np.zeros((l, dim))
-                v_1_[0:len_1] += v_1
-                v_2_[0:len_2] += v_2
-                v_1, v_2 = v_1_, v_2_
+                #l = max(len_1, len_2)
+                #v_1_, v_2_ = np.zeros((l, dim)), np.zeros((l, dim))
+                #v_1_[0:len_1] += v_1
+                #v_2_[0:len_2] += v_2
+                #v_1, v_2 = v_1_, v_2_
+                pass
             elif args.min_or_max == 'fix':
                 v_1_, v_2_ = np.zeros((60, dim)), np.zeros((60, dim))
                 v_1_[0:len_1] += v_1[0:60]

@@ -29,7 +29,7 @@ from espnet2.asr.encoder.abs_av_encoder import AbsAVEncoder
 from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
 
 
-class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module):
+class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Module):
     """Transformer encoder module with visual input.
 
     Args:
@@ -77,7 +77,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
     ):
         assert check_argument_types()
         """Construct an Encoder object."""
-        super(AV_TransformerEncoderMix, self).__init__(
+        super(AV_TransformerEncoderMixVK, self).__init__(
             input_size=input_size,
             output_size=output_size,
             attention_heads=attention_heads,

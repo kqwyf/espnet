@@ -14,6 +14,7 @@ import torch
 from espnet.nets.e2e_asr_common import end_detect
 from espnet.nets.scorer_interface import PartialScorerInterface
 from espnet.nets.scorer_interface import ScorerInterface
+from espnet.nets.scorer_interface import MultiSourcesScorerInterface
 
 
 class Hypothesis(NamedTuple):
@@ -110,27 +111,39 @@ class BeamSearch(torch.nn.Module):
             and len(self.part_scorers) > 0
         )
 
-    def init_hyp(self, x: torch.Tensor) -> List[Hypothesis]:
+    @staticmethod
+    def prep_input_for_scorer(x: Union[torch.Tensor, Dict], scorer):
+        if isinstance(scorer, MultiSourcesScorerInterface) and isinstance(x, torch.Tensor):
+            x = {'encoder_output': x}
+        elif not isinstance(scorer, MultiSourcesScorerInterface) and isinstance(x, Dict):
+            x = x['encoder_output']
+        return x
+
+    def init_hyp(self, x: Union[torch.Tensor, Dict]) -> List[Hypothesis]:
         """Get an initial hypothesis data.
 
         Args:
-            x (torch.Tensor): The encoder output feature
+            x (torch.Tensor or Dict): The encoder output feature
 
         Returns:
             Hypothesis: The initial hypothesis.
 
         """
+        if isinstance(x, Dict):
+            encoder_output = x['encoder_output']
+        else:
+            encoder_output = x
         init_states = dict()
         init_scores = dict()
         for k, d in self.scorers.items():
-            init_states[k] = d.init_state(x)
+            init_states[k] = d.init_state(self.prep_input_for_scorer(x, d))
             init_scores[k] = 0.0
         return [
             Hypothesis(
                 score=0.0,
                 scores=init_scores,
                 states=init_states,
-                yseq=torch.tensor([self.sos], device=x.device),
+                yseq=torch.tensor([self.sos], device=encoder_output.device),
             )
         ]
 
@@ -150,7 +163,7 @@ class BeamSearch(torch.nn.Module):
         return torch.cat((xs, x))
 
     def score_full(
-        self, hyp: Hypothesis, x: torch.Tensor
+        self, hyp: Hypothesis, x: Union[torch.Tensor, Dict]
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
         """Score new hypothesis by `self.full_scorers`.
 
@@ -169,11 +182,11 @@ class BeamSearch(torch.nn.Module):
         scores = dict()
         states = dict()
         for k, d in self.full_scorers.items():
-            scores[k], states[k] = d.score(hyp.yseq, hyp.states[k], x)
+            scores[k], states[k] = d.score(hyp.yseq, hyp.states[k], self.prep_input_for_scorer(x, d))
         return scores, states
 
     def score_partial(
-        self, hyp: Hypothesis, ids: torch.Tensor, x: torch.Tensor
+        self, hyp: Hypothesis, ids: torch.Tensor, x: Union[torch.Tensor, Dict]
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
         """Score new hypothesis by `self.part_scorers`.
 
@@ -193,7 +206,7 @@ class BeamSearch(torch.nn.Module):
         scores = dict()
         states = dict()
         for k, d in self.part_scorers.items():
-            scores[k], states[k] = d.score_partial(hyp.yseq, ids, hyp.states[k], x)
+            scores[k], states[k] = d.score_partial(hyp.yseq, ids, hyp.states[k], self.prep_input_for_scorer(x))
         return scores, states
 
     def beam(
@@ -279,23 +292,25 @@ class BeamSearch(torch.nn.Module):
         return new_states
 
     def search(
-        self, running_hyps: List[Hypothesis], x: torch.Tensor
+        self, running_hyps: List[Hypothesis], x: Union[torch.Tensor, Dict]
     ) -> List[Hypothesis]:
         """Search new tokens for running hypotheses and encoded speech x.
 
         Args:
             running_hyps (List[Hypothesis]): Running hypotheses on beam
-            x (torch.Tensor): Encoded speech feature (T, D)
+            x (torch.Tensor or Dict): Encoded speech feature (T, D), or a dict with key 'encoder_output'.
 
         Returns:
             List[Hypotheses]: Best sorted hypotheses
 
         """
+        if isinstance(x, Dict):
+            encoder_output = x['encoder_output']
         best_hyps = []
-        part_ids = torch.arange(self.n_vocab, device=x.device)  # no pre-beam
+        part_ids = torch.arange(self.n_vocab, device=encoder_output.device)  # no pre-beam
         for hyp in running_hyps:
             # scoring
-            weighted_scores = torch.zeros(self.n_vocab, dtype=x.dtype, device=x.device)
+            weighted_scores = torch.zeros(self.n_vocab, dtype=encoder_output.dtype, device=encoder_output.device)
             scores, states = self.score_full(hyp, x)
             for k in self.full_scorers:
                 weighted_scores += self.weights[k] * scores[k]
@@ -334,12 +349,12 @@ class BeamSearch(torch.nn.Module):
         return best_hyps
 
     def forward(
-        self, x: torch.Tensor, maxlenratio: float = 0.0, minlenratio: float = 0.0
+        self, x: Union[torch.Tensor, Dict], maxlenratio: float = 0.0, minlenratio: float = 0.0
     ) -> List[Hypothesis]:
         """Perform beam search.
 
         Args:
-            x (torch.Tensor): Encoded speech feature (T, D)
+            x (torch.Tensor or Dict): Encoded speech feature (T, D) or a dict with key 'encoder_output'.
             maxlenratio (float): Input length ratio to obtain max output length.
                 If maxlenratio=0.0 (default), it uses a end-detect function
                 to automatically find maximum hypothesis lengths
@@ -349,13 +364,15 @@ class BeamSearch(torch.nn.Module):
             list[Hypothesis]: N-best decoding results
 
         """
+        if isinstance(x, Dict):
+            encoder_output = x['encoder_output']
         # set length bounds
         if maxlenratio == 0:
-            maxlen = x.shape[0]
+            maxlen = encoder_output.shape[0]
         else:
-            maxlen = max(1, int(maxlenratio * x.size(0)))
-        minlen = int(minlenratio * x.size(0))
-        logging.info("decoder input length: " + str(x.shape[0]))
+            maxlen = max(1, int(maxlenratio * encoder_output.size(0)))
+        minlen = int(minlenratio * encoder_output.size(0))
+        logging.info("decoder input length: " + str(encoder_output.shape[0]))
         logging.info("max output length: " + str(maxlen))
         logging.info("min output length: " + str(minlen))
 
@@ -459,7 +476,7 @@ class BeamSearch(torch.nn.Module):
 
 
 def beam_search(
-    x: torch.Tensor,
+    x: Union[torch.Tensor, Dict],
     sos: int,
     eos: int,
     beam_size: int,
@@ -475,7 +492,7 @@ def beam_search(
     """Perform beam search with scorers.
 
     Args:
-        x (torch.Tensor): Encoded speech feature (T, D)
+        x (torch.Tensor or Dict): Encoded speech feature (T, D), or a dict with key 'encoder_output'.
         sos (int): Start of sequence id
         eos (int): End of sequence id
         beam_size (int): The number of hypotheses kept during search

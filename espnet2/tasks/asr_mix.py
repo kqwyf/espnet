@@ -27,10 +27,12 @@ from espnet2.asr.decoder.transformer_decoder import (
     LightweightConvolutionTransformerDecoder,  # noqa: H301
 )
 from espnet2.asr.decoder.transformer_decoder import TransformerDecoder
+from espnet2.asr.decoder.av_transformer_decoder import AV_TransformerDecoder
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
 from espnet2.asr.encoder.rnn_encoder_mix import RNNEncoderMix
 from espnet2.asr.encoder.transformer_encoder_mix import TransformerEncoderMix
 from espnet2.asr.encoder.av_transformer_encoder_mix import AV_TransformerEncoderMix
+from espnet2.asr.encoder.av_transformer_encoder_mix_att import AV_TransformerEncoderMixAtt
 from espnet2.asr.encoder.vgg_rnn_encoder_mix import VGGRNNEncoderMix
 from espnet2.asr.espnet_model_mix import ESPnetASRMixModel
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
@@ -80,6 +82,7 @@ encoder_choices = ClassChoices(
     classes=dict(
         transformer=TransformerEncoderMix,
         av_transformer=AV_TransformerEncoderMix,
+        av_transformer_att=AV_TransformerEncoderMixAtt,
         vgg_rnn=VGGRNNEncoderMix,
         rnn=RNNEncoderMix,
     ),
@@ -90,6 +93,7 @@ decoder_choices = ClassChoices(
     "decoder",
     classes=dict(
         transformer=TransformerDecoder,
+        av_transformer=AV_TransformerDecoder,
         lightweight_conv=LightweightConvolutionTransformerDecoder,
         lightweight_conv2d=LightweightConvolution2DTransformerDecoder,
         dynamic_conv=DynamicConvolutionTransformerDecoder,
@@ -328,7 +332,6 @@ class ASRMixTask(AbsTask):
             decoder = decoder_class(
                 vocab_size=vocab_size,
                 encoder_output_size=encoder.output_size(),
-                encoder_output_size_v=encoder.output_size_v(),
                 **args.decoder_conf,
             )
         else:

@@ -140,8 +140,8 @@ class AV_TransformerEncoderMix(AbsAVEncoder, torch.nn.Module):
         Returns:
             position embedded tensor and mask
         """
-        visuals = additional['visual']
-        visual_lengths = [additional[f'visual_length{spk+1}'] for spk in range(self.num_spkrs)]
+        visuals = [additional[i]['visual'] for i in range(self.num_spkrs)]
+        visual_lengths = [additional[i]['visual_length'] for i in range(self.num_spkrs)]
         visual_prev_states = [additional.get(f'visual_prev_states{spk+1}', None) for spk in range(self.num_spkrs)]
         additional_out = []
         xs_sd, olens_sd, _ = self.encoder_a(xs_pad, ilens, prev_states)

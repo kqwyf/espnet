@@ -123,37 +123,43 @@ class ESPnetASRMixModel(AbsESPnetModel):
             text: (Batch, Length)
             text_lengths: (Batch,)
         """
+        # pack input data
+        batch = {"speech": speech, "speech_lengths": speech_lengths, **kwargs}
+
         # transcript of each speaker
         text_ref = [
-            kwargs["text_ref{}".format(spk + 1)] for spk in range(self.num_spkrs)
+            batch.pop("text_ref{}".format(spk + 1)) for spk in range(self.num_spkrs)
         ]
         text_ref_lengths = [
-            kwargs["text_ref{}_lengths".format(spk + 1)]
+            batch.pop("text_ref{}_lengths".format(spk + 1))
             for spk in range(self.num_spkrs)
         ]
         assert all(txt_length.dim() == 1 for txt_length in text_ref_lengths), (
             txt_length.shape for txt_length in text_ref_lengths
         )
+
         # additional visual input
         additional = {}
-        if 'additional_v1' in kwargs:
-            visuals = [kwargs["additional_v{}".format(
-                n + 1)] for n in range(self.num_spkrs)]
-            visual_lengths = [kwargs["additional_v{}_lengths".format(
-                n + 1)] for n in range(self.num_spkrs)]
-        elif 'additional_video1' in kwargs:
-            visuals = [kwargs["additional_video{}".format(
-                n + 1)] for n in range(self.num_spkrs)]
-            visual_lengths = [kwargs["additional_video{}_lengths".format(
-                n + 1)] for n in range(self.num_spkrs)]
+        if 'additional_v1' in batch:
+            visuals = [batch.pop("additional_v{}".format(
+                n + 1)) for n in range(self.num_spkrs)]
+            visual_lengths = [batch.pop("additional_v{}_lengths".format(
+                n + 1)) for n in range(self.num_spkrs)]
+        elif 'additional_video1' in batch:
+            visuals = [batch.pop("additional_video{}".format(
+                n + 1)) for n in range(self.num_spkrs)]
+            visual_lengths = [batch.pop("additional_video{}_lengths".format(
+                n + 1)) for n in range(self.num_spkrs)]
         else:
             visuals = None
         if visuals:
             visuals = [v[:, :v_len.max(), :] for v, v_len in zip(visuals, visual_lengths)]
-            additional['visual'] = visuals
-            additional['visual_length'] = visual_lengths
+            for i, (v, vlens) in enumerate(zip(visuals, visual_lengths)):
+                additional[i] = {'visual': v, 'visual_length': vlens}
         if len(additional) == 0:
             additional = None
+        batch["additional"] = additional
+
         # Check that batch_size is unified
         batch_size = speech.shape[0]
         assert batch_size == speech_lengths.shape[0], (
@@ -186,7 +192,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         ]
 
         # 1. Encoder
-        encoder_out, encoder_out_lens, encoder_additional_out = self.encode(speech, speech_lengths, additional)
+        encoder_out, encoder_out_lens, encoder_additional_out = self.encode(**batch)
 
         # 2a. CTC branch
         if self.ctc_weight == 0.0:
@@ -209,11 +215,11 @@ class ESPnetASRMixModel(AbsESPnetModel):
             if self.fixed_perm:
                 fixed_perm = torch.tensor([self.fixed_perm] * batch_size, device=encoder_out[0].device)
                 loss_att, acc_att, cer_att, wer_att, min_perm = self._calc_att_loss(
-                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=fixed_perm, additional=encoder_additional_out
+                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=fixed_perm, additional=additional
                 )
             else:
                 loss_att, acc_att, cer_att, wer_att, min_perm = self._calc_att_loss(
-                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=min_perm, additional=encoder_additional_out
+                    encoder_out, encoder_out_lens, text_ref, text_ref_lengths, perm=min_perm, additional=additional
                 )
 
         # 2c. RNN-T branch

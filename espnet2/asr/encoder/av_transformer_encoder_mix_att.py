@@ -14,6 +14,7 @@ from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
 from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
 from espnet.nets.pytorch_backend.transformer.embedding import PositionalEncoding
 from espnet.nets.pytorch_backend.transformer.encoder_layer import EncoderLayer
+from espnet.nets.pytorch_backend.transformer.av_encoder_layer import AVEncoderLayer
 from espnet.nets.pytorch_backend.transformer.layer_norm import LayerNorm
 from espnet.nets.pytorch_backend.transformer.multi_layer_conv import Conv1dLinear
 from espnet.nets.pytorch_backend.transformer.multi_layer_conv import MultiLayeredConv1d
@@ -29,7 +30,7 @@ from espnet2.asr.encoder.abs_av_encoder import AbsAVEncoder
 from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
 
 
-class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Module):
+class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Module):
     """Transformer encoder module with visual input.
 
     Args:
@@ -65,7 +66,8 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
         num_blocks_rec: int = 8,
         dropout_rate: float = 0.1,
         positional_dropout_rate: float = 0.1,
-        attention_dropout_rate: float = 0.0,
+        self_attention_dropout_rate: float = 0.0,
+        src_attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
@@ -74,10 +76,11 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
         positionwise_conv_kernel_size: int = 1,
         padding_idx: int = -1,
         num_spkrs: int = 2,
+        encoder_layer_type: str = "default",
     ):
         assert check_argument_types()
         """Construct an Encoder object."""
-        super(AV_TransformerEncoderMixVK, self).__init__(
+        super(AV_TransformerEncoderMixAtt, self).__init__(
             input_size=input_size,
             output_size=output_size,
             attention_heads=attention_heads,
@@ -85,7 +88,7 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
             num_blocks=num_blocks_rec,
             dropout_rate=dropout_rate,
             positional_dropout_rate=positional_dropout_rate,
-            attention_dropout_rate=attention_dropout_rate,
+            attention_dropout_rate=self_attention_dropout_rate,
             input_layer=input_layer,
             pos_enc_class=pos_enc_class,
             normalize_before=normalize_before,
@@ -97,20 +100,19 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
         self._output_size = output_size
         self._output_size_v = input_size_v
         self.num_spkrs = num_spkrs
-
-        hidden_size = output_size + input_size_v * num_spkrs
+        self.encoder_layer_type = encoder_layer_type
 
         if positionwise_layer_type == "linear":
             positionwise_layer = PositionwiseFeedForward
             positionwise_layer_args = (
-                hidden_size,
+                output_size,
                 linear_units,
                 dropout_rate,
             )
         elif positionwise_layer_type == "conv1d":
             positionwise_layer = MultiLayeredConv1d
             positionwise_layer_args = (
-                hidden_size,
+                output_size,
                 linear_units,
                 positionwise_conv_kernel_size,
                 dropout_rate,
@@ -118,7 +120,7 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
         elif positionwise_layer_type == "conv1d-linear":
             positionwise_layer = Conv1dLinear
             positionwise_layer_args = (
-                hidden_size,
+                output_size,
                 linear_units,
                 positionwise_conv_kernel_size,
                 dropout_rate,
@@ -126,25 +128,61 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
         else:
             raise NotImplementedError("Support only linear or conv1d.")
 
+        if encoder_layer_type == "default":
+            encoder_layer_lambda = lambda lnum: EncoderLayer(
+                output_size,
+                MultiHeadedAttention(
+                    attention_heads, output_size, self_attention_dropout_rate
+                ),
+                positionwise_layer(*positionwise_layer_args),
+                dropout_rate,
+                normalize_before,
+                concat_after,
+            )
+        elif encoder_layer_type == "query_audio":
+            raise NotImplementedError("query_audio is not supported now.")
+            encoder_layer_lambda = lambda lnum: AVEncoderLayer(
+                input_size_v,
+                output_size,
+                1,
+                MultiHeadedAttention(
+                    attention_heads, input_size_v, self_attention_dropout_rate
+                ),
+                MultiHeadedAttention(
+                    attention_heads, input_size_v, src_attention_dropout_rate
+                ),
+                positionwise_layer(*positionwise_layer_args),
+                dropout_rate,
+                normalize_before,
+                concat_after,
+            )
+        elif encoder_layer_type == "query_visual":
+            encoder_layer_lambda = lambda lnum: AVEncoderLayer(
+                output_size,
+                input_size_v,
+                num_spkrs,
+                MultiHeadedAttention(
+                    attention_heads, output_size, self_attention_dropout_rate
+                ),
+                MultiHeadedAttention(
+                    attention_heads, output_size, src_attention_dropout_rate
+                ),
+                positionwise_layer(*positionwise_layer_args),
+                dropout_rate,
+                normalize_before,
+                concat_after,
+            )
+        else:
+            raise NotImplementedError("Support only default, query_audio or query_visual.")
         self.encoders_sd = torch.nn.ModuleList(
             [
                 repeat(
                     num_blocks_sd,
-                    lambda lnum: EncoderLayer(
-                        hidden_size,
-                        MultiHeadedAttention(
-                            attention_heads, hidden_size, attention_dropout_rate
-                        ),
-                        positionwise_layer(*positionwise_layer_args),
-                        dropout_rate,
-                        normalize_before,
-                        concat_after,
-                    ),
+                    encoder_layer_lambda,
                 )
                 for i in range(num_spkrs)
             ]
         )
-        self.hidden_linear = torch.nn.Linear(hidden_size, output_size)
         if self.normalize_before:
             self.after_norm = LayerNorm(output_size)
 
@@ -185,9 +223,11 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
         Returns:
             position embedded tensor and mask
         """
-        visuals = additional['visual']
-        visual_lengths = additional['visual_length']
+        visuals = [additional[i]['visual'] for i in range(self.num_spkrs)]
+        visual_lengths = [additional[i]['visual_length'] for i in range(self.num_spkrs)]
+        visuals = self._repaint_visual_paddings(visuals, visual_lengths)
         masks = (~make_pad_mask(ilens)[:, None, :]).to(xs_pad.device)
+        masks_v = [(~make_pad_mask(v_lens)[:, None, :]).to(vs.device) for vs, v_lens in zip(visuals, visual_lengths)]
 
         if (
             isinstance(self.embed, Conv2dSubsampling)
@@ -200,15 +240,17 @@ class AV_TransformerEncoderMixVK(AbsAVEncoder, TransformerEncoder, torch.nn.Modu
             xs_pad = self.embed(xs_pad)
 
         max_vlen = max([v.shape[1] for v in visuals])
-        assert abs(max_vlen * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'Max length of visual inputs is {max_vlen}, which is too long or too short comparing with max speech feat length {xs_pad.shape[1]}.'
-        visuals = self._repaint_visual_paddings(visuals, visual_lengths)
-        visuals = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
-        xs_pad = torch.cat((xs_pad, *visuals), dim=2)
         xs_sd, masks_sd = [None] * self.num_spkrs, [None] * self.num_spkrs
 
         for ns in range(self.num_spkrs):
-            xs_sd[ns], masks_sd[ns] = self.encoders_sd[ns](xs_pad, masks)
-            xs_sd[ns] = self.hidden_linear(xs_sd[ns])
+            if self.encoder_layer_type == "default":
+                xs_sd[ns], masks_sd[ns] = self.encoders_sd[ns](xs_pad, masks)
+            elif self.encoder_layer_type == "query_audio":
+                raise NotImplementedError("query_audio is not supported now.")
+            elif self.encoder_layer_type == "query_visual":
+                xs_sd[ns], masks_sd[ns], _, _ = self.encoders_sd[ns](xs_pad, masks, visuals, masks_v)
+            else:
+                raise NotImplementedError("Support only default, query_audio or query_visual.")
             xs_sd[ns], masks_sd[ns] = self.encoders(xs_sd[ns], masks_sd[ns])
 
             if self.normalize_before:

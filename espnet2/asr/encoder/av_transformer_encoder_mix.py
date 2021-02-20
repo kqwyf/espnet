@@ -74,6 +74,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
         positionwise_conv_kernel_size: int = 1,
         padding_idx: int = -1,
         num_spkrs: int = 2,
+        proj_av_after_sep: bool = True,
     ):
         assert check_argument_types()
         """Construct an Encoder object."""
@@ -97,8 +98,12 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
         self._output_size = output_size
         self._output_size_v = input_size_v
         self.num_spkrs = num_spkrs
+        self.proj_av_after_sep = proj_av_after_sep
 
-        hidden_size = output_size + input_size_v * num_spkrs
+        if proj_av_after_sep:
+            hidden_size = output_size + input_size_v * num_spkrs
+        else:
+            hidden_size = output_size
 
         if positionwise_layer_type == "linear":
             positionwise_layer = PositionwiseFeedForward
@@ -144,7 +149,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
                 for i in range(num_spkrs)
             ]
         )
-        self.hidden_linear = torch.nn.Linear(hidden_size, output_size)
+        self.hidden_linear = torch.nn.Linear(output_size + input_size_v * num_spkrs, output_size)
         if self.normalize_before:
             self.after_norm = LayerNorm(output_size)
 
@@ -185,8 +190,9 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
         Returns:
             position embedded tensor and mask
         """
-        visuals = additional['visual']
-        visual_lengths = additional['visual_length']
+        visuals = [additional[i]['visual'] for i in range(self.num_spkrs)]
+        visual_lengths = [additional[i]['visual_length'] for i in range(self.num_spkrs)]
+        visuals = self._repaint_visual_paddings(visuals, visual_lengths)
         masks = (~make_pad_mask(ilens)[:, None, :]).to(xs_pad.device)
 
         if (
@@ -201,14 +207,16 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
 
         max_vlen = max([v.shape[1] for v in visuals])
         assert abs(max_vlen * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'Max length of visual inputs is {max_vlen}, which is too long or too short comparing with max speech feat length {xs_pad.shape[1]}.'
-        visuals = self._repaint_visual_paddings(visuals, visual_lengths)
         visuals = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
         xs_pad = torch.cat((xs_pad, *visuals), dim=2)
+        if not self.proj_av_after_sep:
+            xs_pad = self.hidden_linear(xs_pad)
         xs_sd, masks_sd = [None] * self.num_spkrs, [None] * self.num_spkrs
 
         for ns in range(self.num_spkrs):
             xs_sd[ns], masks_sd[ns] = self.encoders_sd[ns](xs_pad, masks)
-            xs_sd[ns] = self.hidden_linear(xs_sd[ns])
+            if self.proj_av_after_sep:
+                xs_sd[ns] = self.hidden_linear(xs_sd[ns])
             xs_sd[ns], masks_sd[ns] = self.encoders(xs_sd[ns], masks_sd[ns])
 
             if self.normalize_before:

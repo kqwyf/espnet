@@ -7,6 +7,7 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 from typing import Union
+from typing import Dict
 
 import numpy as np
 import torch
@@ -161,7 +162,7 @@ class Speech2Text:
 
     @torch.no_grad()
     def __call__(
-        self, speech: Union[torch.Tensor, np.ndarray]
+        self, batch: Dict,
     ) -> List[List[Tuple[Optional[str], List[str], List[int], Hypothesis]]]:
         """Inference.
 
@@ -173,29 +174,61 @@ class Speech2Text:
         """
         assert check_argument_types()
 
-        # Input as audio signal
-        if isinstance(speech, np.ndarray):
-            speech = torch.tensor(speech)
+        new_batch = {}
+        for key, value in batch.items():
+            if key == "speech" or key.startswith("additional_"):
+                assert not key.endswith("_lengths"), f'Key {key} ends with "_lengths", but it is reserved.'
+                if isinstance(value, np.ndarray):
+                    value = torch.tensor(value)
+                # data: (Nsamples,) -> (1, Nsamples)
+                value = value.unsqueeze(0).to(getattr(torch, self.dtype))
+                # lengths: (1,)
+                value_lengths = value.new_full([1], dtype=torch.long, fill_value=value.size(1))
+                new_batch[key] = value
+                new_batch[key + "_lengths"] = value_lengths
+            else:
+                new_batch[key] = value
+        batch = new_batch
 
-        # data: (Nsamples,) -> (1, Nsamples)
-        speech = speech.unsqueeze(0).to(getattr(torch, self.dtype))
-        # lenghts: (1,)
-        lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
-        batch = {"speech": speech, "speech_lengths": lengths}
+        # additional visual input
+        additional = {}
+        if 'additional_v1' in batch:
+            visuals = [batch.pop("additional_v{}".format(
+                n + 1)) for n in range(self.num_spkrs)]
+            visual_lengths = [batch.pop("additional_v{}_lengths".format(
+                n + 1)) for n in range(self.num_spkrs)]
+        elif 'additional_video1' in batch:
+            visuals = [batch.pop("additional_video{}".format(
+                n + 1)) for n in range(self.num_spkrs)]
+            visual_lengths = [batch.pop("additional_video{}_lengths".format(
+                n + 1)) for n in range(self.num_spkrs)]
+        else:
+            visuals = None
+        if visuals:
+            visuals = [v[:, :v_len.max(), :] for v, v_len in zip(visuals, visual_lengths)]
+            for i, (v, vlens) in enumerate(zip(visuals, visual_lengths)):
+                additional[i] = {'visual': v, 'visual_length': vlens}
+        if len(additional) == 0:
+            additional = None
+        batch["additional"] = additional
 
         # a. To device
         batch = to_device(batch, device=self.device)
 
         # b. Forward Encoder
-        enc_outputs, _ = self.asr_model.encode(**batch)
+        enc_outputs, _, _ = self.asr_model.encode(**batch)
         assert len(enc_outputs) == self.num_spkrs, len(enc_outputs)
 
         # c. Passed the encoder result and the beam search
         results_list = []
         # For each predicted spk
-        for enc in enc_outputs:
+        for enc_i, enc in enumerate(enc_outputs):
+            if additional is None:
+                x = enc[0]
+            else:
+                x = {'encoder_output': enc[0], 'additional': additional[enc_i]}
             nbest_hyps = self.beam_search(
-                x=enc[0], maxlenratio=self.maxlenratio, minlenratio=self.minlenratio
+                x=x, maxlenratio=self.maxlenratio, minlenratio=self.minlenratio
             )
             nbest_hyps = nbest_hyps[: self.nbest]
 
@@ -315,7 +348,7 @@ def inference(
             batch = {k: v[0] for k, v in batch.items() if not k.endswith("_lengths")}
 
             # N-best list of (text, token, token_int, hyp_object)
-            results_list = speech2text(**batch)
+            results_list = speech2text(batch)
 
             # Only supporting batch_size==1
             key = keys[0]

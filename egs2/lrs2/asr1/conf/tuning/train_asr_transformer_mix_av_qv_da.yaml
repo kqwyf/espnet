@@ -24,8 +24,9 @@ frontend_conf:
     hop_length: 160
     frontend_conf: null
 
-encoder: transformer
+encoder: av_transformer_att
 encoder_conf:
+    input_size_v: 512
     output_size: 256
     attention_heads: 4
     linear_units: 2048
@@ -33,9 +34,11 @@ encoder_conf:
     num_blocks_rec: 8
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
-    attention_dropout_rate: 0.0
+    self_attention_dropout_rate: 0.0
+    src_attention_dropout_rate: 0.0
     input_layer: conv2d2
     normalize_before: true
+    encoder_layer_type: query_visual
 
 decoder: av_transformer
 decoder_conf:
@@ -50,8 +53,8 @@ decoder_conf:
     input_layer_v: linear
     self_attention_dropout_rate: 0.0
     src_attention_dropout_rate: 0.0
-    decoder_layer_type: dual_decoder
-    concat_decoder_output: true # should be true when using 'dual_decoder'
+    decoder_layer_type: dual_attention
+    concat_decoder_output: false # should be true when using 'dual_decoder'
 
 ctc_conf:
     dropout_rate: 0.0

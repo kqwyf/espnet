@@ -44,22 +44,63 @@ cat << EOF
 EOF
 
 while IFS= read -r expdir; do
-    if ls "${expdir}"/*/*/score_*/min_perm_result.json &> /dev/null; then
+    if ls "${expdir}"/*/*/score_*/min_perm_result.json &> /dev/null || ls "${expdir}"/*/*/score_*/fixed_perm_result_*.json &> /dev/null ; then
         echo "## $(basename ${expdir})"
-        for type in wer cer ter; do
-            if ls "${expdir}"/*/*/score_${type}/min_perm_result.json &> /dev/null; then
-                cat << EOF
-### ${type^^}
+        if ls "${expdir}"/*/*/score_*/min_perm_result.json &> /dev/null ; then
+            # minimum permutation
+            echo "### Minimum permutation"
+            for type in wer cer ter; do
+                if ls "${expdir}"/*/*/score_${type}/min_perm_result.json &> /dev/null; then
+                    cat << EOF
+#### ${type^^}
 
 |dataset|Snt|Wrd|Corr|Sub|Del|Ins|Err|S.Err|
 |---|---|---|---|---|---|---|---|---|
 EOF
-                grep -H -e Avg "${expdir}"/*/*/score_${type}/min_perm_result.json \
-                    | sed -e "s#${expdir}/\([^/]*/[^/]*\)/score_${type}/min_perm_result.json:#|\1#g" \
-                    | sed -e 's#Sum/Avg##g' | tr '|' ' ' | tr -s ' ' '|'
-                echo
-            fi
-        done
+                    for f in $(ls "${expdir}"/*/*/score_${type}/min_perm_result.json); do
+                        lines=$(head -n 6 "${f}")
+                        dataset=$(echo "${f}" | sed -e "s#${expdir}/\\([^/]*/[^/]*\\)/score_${type}/min_perm_result.json#\\1#g")
+                        scores=$(echo "${lines}" | grep "^Total Scores:" | tr -s ' ' | cut -d ' ' -f 8-11 | sed -e 's# #|#g')
+                        error_rate=$(echo "${lines}" | grep "^Error Rate:" | tr -s ' ' | cut -d ' ' -f 3)
+                        s_error_rate=$(echo "${lines}" | grep "^Sentence Error Rate:" | tr -s ' ' | cut -d ' ' -f 4)
+                        word_total=$(echo "${lines}" | grep "^Total Words:" | tr -s ' ' | cut -d ' ' -f 3)
+                        utt_total=$(echo "${lines}" | grep "^Total Utts:" | tr -s ' ' | cut -d ' ' -f 3)
+                        echo "|${dataset}|${utt_total}|${word_total}|${scores}|${error_rate}|${s_error_rate}|"
+                    done
+                    echo
+                fi
+            done
+        fi
+        if ls "${expdir}"/*/*/score_*/fixed_perm_result_*.json &> /dev/null ; then
+            # fixed permutation
+            perms=$(ls "${expdir}"/*/*/score_*/fixed_perm_result_*.json | \
+                sed -e "s#${expdir}/[^/]*/[^/]*/score_[^/]*/fixed_perm_result_\\([^/]*\\).json#\\1#g" | \
+                sort | uniq)
+            for perm in ${perms}; do
+                echo "### Fixed permutation: ${perm}"
+                for type in wer cer ter; do
+                    if ls "${expdir}"/*/*/score_${type}/fixed_perm_result_${perm}.json &> /dev/null; then
+                        cat << EOF
+#### ${type^^}
+
+|dataset|Snt|Wrd|Corr|Sub|Del|Ins|Err|S.Err|
+|---|---|---|---|---|---|---|---|---|
+EOF
+                        for f in $(ls "${expdir}"/*/*/score_${type}/fixed_perm_result_${perm}.json); do
+                            lines=$(head -n 6 "${f}")
+                            dataset=$(echo "${f}" | sed -e "s#${expdir}/\\([^/]*/[^/]*\\)/score_${type}/fixed_perm_result_${perm}.json#\\1#g")
+                            scores=$(echo "${lines}" | grep "^Total Scores:" | tr -s ' ' | cut -d ' ' -f 8-11 | sed -e 's# #|#g')
+                            error_rate=$(echo "${lines}" | grep "^Error Rate:" | tr -s ' ' | cut -d ' ' -f 3)
+                            s_error_rate=$(echo "${lines}" | grep "^Sentence Error Rate:" | tr -s ' ' | cut -d ' ' -f 4)
+                            word_total=$(echo "${lines}" | grep "^Total Words:" | tr -s ' ' | cut -d ' ' -f 3)
+                            utt_total=$(echo "${lines}" | grep "^Total Utts:" | tr -s ' ' | cut -d ' ' -f 3)
+                            echo "|${dataset}|${utt_total}|${word_total}|${scores}|${error_rate}|${s_error_rate}|"
+                        done
+                        echo
+                    fi
+                done
+            done
+        fi
     fi
 
 

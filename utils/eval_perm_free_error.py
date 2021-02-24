@@ -29,16 +29,19 @@ def permutationDFS(source, start, res):
 
 
 # pre-set the permutation scheme (ref_idx, hyp_idx)
-def permutation_schemes(num_spkrs):
+def permutation_schemes(num_spkrs, fixed_perm=None):
     src = [x for x in range(1, num_spkrs + 1)]
     perms = []
 
-    # get all permutations of [1, ..., num_spkrs]
-    # [[r1h1, r2h2], [r1h2, r2h1]]
-    # [[r1h1, r2h2, r3h3], [r1h1, r2h3, r3h2], [r1h2, r2h1, r3h3],
-    #  [r1h2, r2h3, r3h2], [r1h3, r2h2, r3h1], [r1h3, r2h1, r3h2]]]
-    # ...
-    permutationDFS(np.array(src), 0, perms)
+    if fixed_perm is None:
+        # get all permutations of [1, ..., num_spkrs]
+        # [[r1h1, r2h2], [r1h2, r2h1]]
+        # [[r1h1, r2h2, r3h3], [r1h1, r2h3, r3h2], [r1h2, r2h1, r3h3],
+        #  [r1h2, r2h3, r3h2], [r1h3, r2h2, r3h1], [r1h3, r2h1, r3h2]]]
+        # ...
+        permutationDFS(np.array(src), 0, perms)
+    else:
+        perms = [fixed_perm]
 
     keys = []
     for perm in perms:
@@ -58,8 +61,8 @@ def convert_score(keys, dic):
     return ret
 
 
-def get_utt_permutation(old_dic, num_spkrs=2):
-    perm, keys = permutation_schemes(num_spkrs)
+def get_utt_permutation(old_dic, num_spkrs=2, fixed_perm=None):
+    perm, keys = permutation_schemes(num_spkrs, fixed_perm)
     new_dic = {}
 
     for id in old_dic.keys():
@@ -164,6 +167,9 @@ def get_parser():
         "--num-spkrs", type=int, default=2, help="number of mixed speakers."
     )
     parser.add_argument(
+        "--fixed_perm", type=str, default=None, help="fixed permutation for hypotheses, should have the same number as speakers. e.g. 1_2_3"
+    )
+    parser.add_argument(
         "results",
         type=str,
         nargs="+",
@@ -182,6 +188,14 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    if args.fixed_perm is not None:
+        fixed_perm = [int(item) for item in args.fixed_perm.split('_')]
+        if len(fixed_perm) != args.num_spkrs:
+            parser.print_help()
+            sys.exit(1)
+    else:
+        fixed_perm = None
+
     # Read results from files
     results = {}
     for r in six.moves.range(1, args.num_spkrs + 1):
@@ -196,14 +210,16 @@ def main():
     results = merge_results(results)
 
     # Get the final results with best permutation
-    new_results = get_utt_permutation(results, args.num_spkrs)
+    new_results = get_utt_permutation(results, args.num_spkrs, fixed_perm)
 
     # Get WER/CER
     pat = re.compile(r"\d+")
-    score = np.zeros((len(new_results.keys()), 4))
+    score = np.zeros((len(new_results.keys()), 5))
     for idx, key in enumerate(new_results.keys()):
         # [c, s, d, i]
         tmp_score = list(map(int, pat.findall(new_results[key]["Scores"])))
+        # sentence error
+        tmp_score.append(1 if sum(tmp_score[1:4]) > 0 else 0)
         score[idx] = tmp_score
     return score, new_results
 
@@ -216,12 +232,18 @@ if __name__ == "__main__":
 
     # Print results
     print(sys.argv)
-    print("Total Scores: (#C #S #D #I) " + " ".join(map(str, list(score_sum))))
+    print("Total Scores: (#C #S #D #I #S.Err) " + " ".join(map(str, list(score_sum))))
     print(
         "Error Rate:   {:0.2f}".format(
             100 * sum(score_sum[1:4]) / float(sum(score_sum[0:3]))
         )
     )
+    print(
+        "Sentence Error Rate:   {:0.2f}".format(
+            100 * float(score_sum[4]) / float(scores.shape[0])
+        )
+    )
+    print("Total Words: ", str(int(sum(score_sum[0:3]))))
     print("Total Utts: ", str(scores.shape[0]))
 
     print(

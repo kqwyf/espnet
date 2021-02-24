@@ -101,6 +101,9 @@ inference_asr_model=valid.acc.ave.pth # ASR model path for decoding.
                                       # inference_asr_model=valid.loss.ave.pth
 download_model= # Download a model from Model Zoo and use it for decoding
 
+# Evaluating related
+fixed_perm= # Use a fixed permutation to calculate the error rates. e.g. "1_2_3"
+
 # [Task dependent] Set the datadir name created by local/data.sh
 train_set=       # Name of training set.
 valid_set=       # Name of validation set used for monitoring/tuning network training
@@ -1297,15 +1300,21 @@ if ! "${skip_eval}"; then
                     sclite -r ${_scoredir}/ref${ind_r}.trn trn -h ${_scoredir}/hyp${ind_h}.trn trn -i rm -o all stdout > ${_scoredir}/result_r${ind_r}h${ind_h}.txt
                 done
 
-                log "Write ${_type} result in ${_scoredir}/min_perm_result.json"
-                ${python} -m utils.eval_perm_free_error --num-spkrs ${spk_num} \
-                    ${results_str} > ${_scoredir}/min_perm_result.json
-                sed -n '2,4p' ${_scoredir}/min_perm_result.json
+                if [ -n "${fixed_perm}" ]; then
+                    log "Write ${_type} result in ${_scoredir}/fixed_perm_result_${fixed_perm}.json"
+                    ${python} -m utils.eval_perm_free_error --num-spkrs ${spk_num} --fixed_perm ${fixed_perm} \
+                        ${results_str} > ${_scoredir}/fixed_perm_result_${fixed_perm}.json
+                    sed -n '2,4p' ${_scoredir}/fixed_perm_result_${fixed_perm}.json
+                else
+                    log "Write ${_type} result in ${_scoredir}/min_perm_result.json"
+                    ${python} -m utils.eval_perm_free_error --num-spkrs ${spk_num} \
+                        ${results_str} > ${_scoredir}/min_perm_result.json
+                    sed -n '2,4p' ${_scoredir}/min_perm_result.json
+                fi
             done
         done
 
         # Show results in Markdown syntax
-        # TODO (Wangyou)
         scripts/utils/show_asr_mix_result.sh "${asr_exp}" > "${asr_exp}"/RESULTS.md
         cat "${asr_exp}"/RESULTS.md
 

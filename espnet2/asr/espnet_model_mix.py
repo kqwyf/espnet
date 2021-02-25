@@ -60,6 +60,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         report_wer: bool = True,
         sym_space: str = "<space>",
         sym_blank: str = "<blank>",
+        spkr_rank_aware_decoder: bool = True,
         fixed_perm: Optional[List[int]] = None,
     ):
         assert check_argument_types()
@@ -77,6 +78,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
 
         self.num_spkrs = encoder.num_spkrs
         self.pit = PIT(self.num_spkrs)
+        self.spkr_rank_aware_decoder = spkr_rank_aware_decoder
         self.fixed_perm = fixed_perm
 
         self.frontend = frontend
@@ -154,8 +156,8 @@ class ESPnetASRMixModel(AbsESPnetModel):
             visuals = None
         if visuals:
             visuals = [v[:, :v_len.max(), :] for v, v_len in zip(visuals, visual_lengths)]
-            for i, (v, vlens) in enumerate(zip(visuals, visual_lengths)):
-                additional[i] = {'visual': v, 'visual_length': vlens}
+            spkr_list = [{'visual': v, 'visual_length': v_len} for v, v_len in zip(visuals, visual_lengths)]
+            additional['spkr_list'] = spkr_list
         if len(additional) == 0:
             additional = None
         batch["additional"] = additional
@@ -346,9 +348,11 @@ class ESPnetASRMixModel(AbsESPnetModel):
             ys_in_lens = ys_pad_lens_new[spk] + 1
 
             # 1. Forward decoder
+            if self.spkr_rank_aware_decoder:
+                additional['spkr_rank'] = spk
             if isinstance(self.decoder, AbsAVDecoder):
                 dec_out, _ = self.decoder(
-                    encoder_out[spk], encoder_out_lens[spk], additional[spk], ys_in_pad, ys_in_lens
+                    encoder_out[spk], encoder_out_lens[spk], additional, ys_in_pad, ys_in_lens
                 )
             else:
                 dec_out, _ = self.decoder(

@@ -230,8 +230,28 @@ class BatchBeamSearch(BeamSearch):
         weighted_scores = torch.zeros(
             n_batch, self.n_vocab, dtype=encoder_output.dtype, device=encoder_output.device
         )
+
         expanded_x = {k: v for k, v in x.items()}
         expanded_x['encoder_output'] = encoder_output.expand(n_batch, *encoder_output.shape)
+        if 'additional' in x:
+            additional_new = {}
+            additional = x['additional']
+            for key in additional:
+                if key == 'spkr_list':
+                    spkr_list_new = []
+                    spkr_list = additional['spkr_list']
+                    for item in spkr_list:
+                        item_new = {}
+                        if 'visual' in item:
+                            item_new['visual'] = torch.cat([item['visual']] * n_batch, dim=0)
+                        if 'visual_length' in item:
+                            item_new['visual_length'] = torch.cat([item['visual_length']] * n_batch, dim=0)
+                        spkr_list_new.append(item_new)
+                    additional_new['spkr_list'] = spkr_list_new
+                else:
+                    additional_new[key] = additional[key]
+            expanded_x['additional'] = additional_new
+
         scores, states = self.score_full(running_hyps, expanded_x)
         for k in self.full_scorers:
             weighted_scores += self.weights[k] * scores[k]

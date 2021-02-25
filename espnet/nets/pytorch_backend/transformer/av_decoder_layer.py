@@ -10,7 +10,6 @@ import torch
 from torch import nn
 
 from espnet.nets.pytorch_backend.transformer.layer_norm import LayerNorm
-from espnet.nets.pytorch_backend.transformer.decoder_layer import DecoderLayer
 
 
 class DualDecoderLayer(nn.Module):
@@ -25,14 +24,14 @@ class DualDecoderLayer(nn.Module):
 
     def __init__(
         self,
-        decoder1,
-        decoder2,
+        decoder_audio,
+        decoder_visual,
     ):
         super(DualDecoderLayer, self).__init__()
-        self.decoder1 = decoder1
-        self.decoder2 = decoder2
+        self.decoder1 = decoder_audio
+        self.decoder2 = decoder_visual
 
-    def forward(self, tgt, tgt_mask, memory1, memory1_mask, memory2, memory2_mask, cache=(None, None)):
+    def forward(self, tgt, tgt_mask, memory_a, memory_a_mask, memory_v, memory_v_mask, cache=None):
         """Compute decoded features.
 
         Args:
@@ -54,16 +53,41 @@ class DualDecoderLayer(nn.Module):
             torch.Tensor: Encoded memory 2 mask (#batch, maxlen_in_2).
 
         """
-        x1, x2 = tgt
-        tgt_mask1, tgt_mask2 = tgt_mask
+        if cache is None:
+            cache = (None,) * len(tgt)
+        if memory_v_mask is None:
+            memory_v_mask = (None,) * (len(tgt) - 1)
+        x_a, *x_v = tgt
+        tgt_mask_a, *tgt_mask_v = tgt_mask
+        if isinstance(memory_v, list) or isinstance(memory_v, tuple):
+            input_is_list = True
+        else:
+            input_is_list = False
+            memory_v = [memory_v]
+            memory_v_mask = [memory_v_mask]
 
-        x1, tgt_mask1, memory1, memory1_mask = self.decoder1(x1, tgt_mask1, memory1, memory1_mask, cache[0])
-        x2, tgt_mask2, memory2, memory2_mask = self.decoder2(x2, tgt_mask2, memory2, memory2_mask, cache[1])
+        x_v_new = []
+        tgt_mask_v_new = []
+        memory_v_new = []
+        memory_v_mask_new = []
+        x_a, tgt_mask_a, memory_a, memory_a_mask = self.decoder1(x_a, tgt_mask_a, memory_a, memory_a_mask, cache[0])
+        for i in range(len(x_v)):
+            x_v_tmp, tgt_mask_v_tmp, memory_v_tmp, memory_v_mask_tmp = self.decoder2(x_v[i], tgt_mask_v[i], memory_v[i], memory_v_mask[i], cache[i + 1])
+            x_v_new.append(x_v_tmp)
+            tgt_mask_v_new.append(tgt_mask_v_tmp)
+            memory_v_new.append(memory_v_tmp)
+            memory_v_mask_new.append(memory_v_mask_tmp)
 
-        x = x1, x2
-        tgt_mask = tgt_mask1, tgt_mask2
+        x = x_a, *x_v_new
+        tgt_mask = tgt_mask_a, *tgt_mask_v_new
+        if input_is_list:
+            memory_v = memory_v_new
+            memory_v_mask = memory_v_mask_new
+        else:
+            memory_v = memory_v_new[0]
+            memory_v_mask = memory_v_mask_new[0]
 
-        return x, tgt_mask, memory1, memory1_mask, memory2, memory2_mask
+        return x, tgt_mask, memory_a, memory_a_mask, memory_v, memory_v_mask
 
 
 class DualAttentionDecoderLayer(nn.Module):
@@ -92,6 +116,7 @@ class DualAttentionDecoderLayer(nn.Module):
         self,
         size_a,
         size_v,
+        size_concat,
         self_attn,
         src_attn_a,
         src_attn_v,
@@ -118,7 +143,7 @@ class DualAttentionDecoderLayer(nn.Module):
             self.concat_linear1 = nn.Linear(size_a + size_a, size_a)
         # We cannot assume that visual input has the same size as the audio features,
         # so we must concat and project the attention results at the src-attention.
-        self.concat_linear2 = nn.Linear(size_a + size_a + size_v, size_a)
+        self.concat_linear2 = nn.Linear(size_a + size_concat, size_a)
 
     def forward(self, tgt, tgt_mask, memory, memory_mask, visual, visual_mask, cache=None):
         """Compute decoded features.
@@ -128,8 +153,8 @@ class DualAttentionDecoderLayer(nn.Module):
             tgt_mask (torch.Tensor): Mask for input tensor (#batch, maxlen_out).
             memory (torch.Tensor): Encoded memory, float32 (#batch, maxlen_in_a, size_a).
             memory_mask (torch.Tensor): Encoded memory mask (#batch, maxlen_in_a).
-            memory (torch.Tensor): Encoded visual, float32 (#batch, maxlen_in_v, size_v).
-            memory_mask (torch.Tensor): Encoded visual mask (#batch, maxlen_in_v).
+            visual (torch.Tensor or Tuple[torch.Tensor]): Encoded visual, float32 (#batch, maxlen_in_v, size_v).
+            visual_mask (torch.Tensor or Tuple[torch.Tensor]): Encoded visual mask (#batch, maxlen_in_v).
             cache (List[torch.Tensor]): List of cached tensors.
                 Each tensor shape should be (#batch, maxlen_out - 1, size).
 
@@ -142,6 +167,14 @@ class DualAttentionDecoderLayer(nn.Module):
             torch.Tensor: Encoded visual mask (#batch, maxlen_in_v).
 
         """
+        visual_raw = visual
+        visual_mask_raw = visual_mask
+        if not isinstance(visual_raw, list) and not isinstance(visual_raw, tuple):
+            visual = [visual_raw]
+            visual_mask = [visual_mask_raw]
+        if visual_mask_raw is None: # inferencing
+            visual_mask = [None] * len(visual)
+
         residual = tgt
         if self.normalize_before:
             tgt = self.norm1(tgt)
@@ -154,8 +187,8 @@ class DualAttentionDecoderLayer(nn.Module):
             assert cache.shape == (
                 tgt.shape[0],
                 tgt.shape[1] - 1,
-                self.size,
-            ), f"{cache.shape} == {(tgt.shape[0], tgt.shape[1] - 1, self.size)}"
+                self.size_a,
+            ), f"{cache.shape} == {(tgt.shape[0], tgt.shape[1] - 1, self.size_a)}"
             tgt_q = tgt[:, -1:, :]
             residual = residual[:, -1:, :]
             tgt_q_mask = None
@@ -179,7 +212,9 @@ class DualAttentionDecoderLayer(nn.Module):
             (
                 x,
                 self.src_attn_a(x, memory, memory, memory_mask),
-                self.src_attn_v(x, visual, visual, visual_mask)
+                *[
+                    self.src_attn_v(x, v, v, v_mask) for v, v_mask in zip(visual, visual_mask)
+                ]
             ), dim=-1
         )
         x = residual + self.concat_linear2(x_concat)
@@ -196,5 +231,6 @@ class DualAttentionDecoderLayer(nn.Module):
         if cache is not None:
             x = torch.cat([cache, x], dim=1)
 
-        return x, tgt_mask, memory, memory_mask, visual, visual_mask
+
+        return x, tgt_mask, memory, memory_mask, visual_raw, visual_mask_raw
 

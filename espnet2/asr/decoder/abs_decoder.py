@@ -1,6 +1,7 @@
 from abc import ABC
 from abc import abstractmethod
 from typing import Tuple
+from typing import Optional
 
 import torch
 
@@ -15,5 +16,6 @@ class AbsDecoder(torch.nn.Module, ScorerInterface, ABC):
         hlens: torch.Tensor,
         ys_in_pad: torch.Tensor,
         ys_in_lens: torch.Tensor,
+        spkr_rank: Optional[bool] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError

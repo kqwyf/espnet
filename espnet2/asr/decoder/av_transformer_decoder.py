@@ -57,14 +57,21 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
         use_output_layer: bool = True,
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
+        num_spkrs: int = 2,
         concat_decoder_output: bool = False,
+        spkr_rank_aware: bool = True,
     ):
         assert check_argument_types()
         super().__init__()
         attention_dim = encoder_output_size
+        self.num_spkrs = num_spkrs
         self.concat_decoder_output = concat_decoder_output
+        self.spkr_rank_aware = spkr_rank_aware
         if concat_decoder_output:
-            decoder_output_size = attention_dim + attention_dim
+            if spkr_rank_aware:
+                decoder_output_size = attention_dim + attention_dim
+            else:
+                decoder_output_size = attention_dim + attention_dim * num_spkrs
         else:
             decoder_output_size = attention_dim
 
@@ -134,7 +141,14 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
                 if use_output_layer is True,
             olens: (batch, )
         """
-        vs_pad, vlens = additional['visual'], additional['visual_length']
+        if 'spkr_rank' not in additional:
+            assert not self.spkr_rank_aware
+            vs_pad_list, vlens_list = [item['visual'] for item in additional['spkr_list']], [item['visual_length'] for item in additional['spkr_list']]
+        else:
+            assert self.spkr_rank_aware
+            spkr_rank = additional['spkr_rank']
+            vs_pad_list, vlens_list = [additional['spkr_list'][spkr_rank]['visual']], [additional['spkr_list'][spkr_rank]['visual_length']]
+
         tgt = ys_in_pad
         # tgt_mask: (B, 1, L)
         tgt_mask = (~make_pad_mask(ys_in_lens)[:, None, :]).to(tgt.device)
@@ -146,22 +160,23 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
         memory = hs_pad
         memory_mask = (~make_pad_mask(hlens))[:, None, :].to(memory.device)
 
-        visual = vs_pad
-        visual_mask = (~make_pad_mask(vlens))[:, None, :].to(visual.device)
+        visuals = vs_pad_list
+        visual_masks = [(~make_pad_mask(vlens))[:, None, :].to(visuals[0].device) for vlens in vlens_list]
 
         x = self.embed_a(tgt)
-        v = self.embed_v(visual)
+        vs = [self.embed_v(visual) for visual in visuals]
 
         if self.concat_decoder_output:
-            x, tgt_mask = (x, x), (tgt_mask, tgt_mask)
-        x, tgt_mask, memory, memory_mask, v, visual_mask = self.decoders(
-            x, tgt_mask, memory, memory_mask, v, visual_mask
+            x, tgt_mask = (x,) + (x,) * len(visuals), (tgt_mask,) + (tgt_mask,) * len(visuals)
+        x, tgt_mask, memory, memory_mask, vs, visual_masks = self.decoders(
+            x, tgt_mask, memory, memory_mask, vs, visual_masks
         )
         if self.normalize_before:
             if self.concat_decoder_output:
-                assert torch.all(tgt_mask[0] == tgt_mask[1])
+                for i in range(len(tgt_mask) - 1):
+                    assert torch.all(tgt_mask[i] == tgt_mask[i + 1])
                 tgt_mask = tgt_mask[0]
-                x = torch.cat((self.after_norm_a(x[0]), self.after_norm_v(x[1])), dim=-1)
+                x = torch.cat([self.after_norm_a(x[0])] + [self.after_norm_v(x[i]) for i in range(1, len(x))], dim=-1)
             else:
                 x = self.after_norm_a(x)
         if self.output_layer is not None:
@@ -175,7 +190,7 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
         tgt: torch.Tensor,
         tgt_mask: torch.Tensor,
         memory: torch.Tensor,
-        visual: torch.Tensor,
+        visuals: List[torch.Tensor],
         cache: List[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """Forward one step.
@@ -193,24 +208,27 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
             y.shape` is (batch, maxlen_out, token)
         """
         x = self.embed_a(tgt)
-        v = self.embed_v(visual)
+        vs = [self.embed_v(visual) for visual in visuals]
+        if self.concat_decoder_output:
+            x = (x,) + (x,) * len(visuals)
+            tgt_mask = (tgt_mask,) + (tgt_mask,) * len(visuals)
         if cache is None:
             cache = [None] * len(self.decoders)
         new_cache = []
         for c, decoder in zip(cache, self.decoders):
-            x, tgt_mask, memory, memory_mask, v, visual_mask = decoder(
-                x, tgt_mask, memory, None, v, visual_mask, cache=c
+            x, tgt_mask, memory, _, vs, _ = decoder(
+                x, tgt_mask, memory, None, vs, None, cache=c
             )
             new_cache.append(x)
 
         if self.normalize_before:
             if self.concat_decoder_output:
-                y = torch.cat((self.after_norm_a(x[0][:, -1]), self.after_norm_v(x[1][:, -1])), dim=-1)
+                y = torch.cat([self.after_norm_a(x[0][:, -1])] + [self.after_norm_v(x[i][:, -1]) for i in range(1, len(x))], dim=-1)
             else:
-                y = self.after_norm(x[:, -1])
+                y = self.after_norm_a(x[:, -1])
         else:
             if self.concat_decoder_output:
-                y = torch.cat((x[0][:, -1], x[1][:, -1]), dim=-1)
+                y = torch.cat([x[i][:, -1] for i in range(len(x))], dim=-1)
             else:
                 y = x[:, -1]
         if self.output_layer is not None:
@@ -221,10 +239,17 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
     def score(self, ys, state, x):
         """Score."""
         memory, additional = x['encoder_output'], x['additional']
-        visual, visual_length = additional['visual'], additional['visual_length']
+        if 'spkr_rank' not in additional:
+            assert not self.spkr_rank_aware
+            visuals, visual_lengths = [item['visual'] for item in additional['spkr_list']], [item['visual_length'] for item in additional['spkr_list']]
+        else:
+            assert self.spkr_rank_aware
+            spkr_rank = additional['spkr_rank']
+            visuals, visual_lengths = [additional['spkr_list'][spkr_rank]['visual']], [additional['spkr_list'][spkr_rank]['visual_length']]
+
         ys_mask = subsequent_mask(len(ys), device=memory.device).unsqueeze(0)
         logp, state = self.forward_one_step(
-            ys.unsqueeze(0), ys_mask, memory.unsqueeze(0), visual, cache=state
+            ys.unsqueeze(0), ys_mask, memory.unsqueeze(0), visuals, cache=state
         )
         return logp.squeeze(0), state
 
@@ -246,7 +271,14 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
 
         """
         memory, additional = xs['encoder_output'], xs['additional']
-        visual, visual_length = additional['visual'], additional['visual_length']
+        if 'spkr_rank' not in additional:
+            assert not self.spkr_rank_aware
+            visuals, visual_lengths = [item['visual'] for item in additional['spkr_list']], [item['visual_length'] for item in additional['spkr_list']]
+        else:
+            assert self.spkr_rank_aware
+            spkr_rank = additional['spkr_rank']
+            visuals, visual_lengths = [additional['spkr_list'][spkr_rank]['visual']], [additional['spkr_list'][spkr_rank]['visual_length']]
+
         # merge states
         n_batch = len(ys)
         n_layers = len(self.decoders)
@@ -254,17 +286,29 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
             batch_state = None
         else:
             # transpose state of [batch, layer] into [layer, batch]
-            batch_state = [
-                torch.stack([states[b][i] for b in range(n_batch)])
-                for i in range(n_layers)
-            ]
+            if isinstance(states[0][0], list): # we are using multiple decoders
+                batch_state = [
+                    [
+                        torch.stack([states[b][d][i] for b in range(n_batch)])
+                        for d in range(len(states[0]))
+                    ]
+                    for i in range(n_layers)
+                ]
+            else:
+                batch_state = [
+                    torch.stack([states[b][i] for b in range(n_batch)])
+                    for i in range(n_layers)
+                ]
 
         # batch decoding
         ys_mask = subsequent_mask(ys.size(-1), device=memory.device).unsqueeze(0)
-        logp, states = self.forward_one_step(ys, ys_mask, memory, visual, cache=batch_state)
+        logp, states = self.forward_one_step(ys, ys_mask, memory, visuals, cache=batch_state)
 
         # transpose state of [layer, batch] into [batch, layer]
-        state_list = [[states[i][b] for i in range(n_layers)] for b in range(n_batch)]
+        if isinstance(states[0], tuple): # we are using multiple decoders
+            state_list = [[[states[i][d][b] for i in range(n_layers)] for d in range(len(states[0]))] for b in range(n_batch)]
+        else:
+            state_list = [[states[i][b] for i in range(n_layers)] for b in range(n_batch)]
         return logp, state_list
 
 
@@ -288,8 +332,10 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
         concat_after: bool = False,
+        num_spkrs: int = 2,
         decoder_layer_type: str = "dual_attention",
         concat_decoder_output: bool = False, # should be True when using 'dual_decoder'
+        spkr_rank_aware: bool = True,
     ):
         assert check_argument_types()
 
@@ -305,7 +351,9 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
             use_output_layer=use_output_layer,
             pos_enc_class=pos_enc_class,
             normalize_before=normalize_before,
+            num_spkrs=num_spkrs,
             concat_decoder_output=concat_decoder_output,
+            spkr_rank_aware=spkr_rank_aware,
         )
 
         attention_dim = encoder_output_size
@@ -343,11 +391,16 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
                 ),
             )
         elif decoder_layer_type == "dual_attention":
+            if spkr_rank_aware:
+                size_concat = attention_dim + attention_dim
+            else:
+                size_concat = attention_dim + attention_dim * num_spkrs
             self.decoders = repeat(
                 num_blocks,
                 lambda lnum: DualAttentionDecoderLayer(
                     attention_dim,
                     attention_dim,
+                    size_concat,
                     MultiHeadedAttention(
                         attention_heads, attention_dim, self_attention_dropout_rate
                     ),

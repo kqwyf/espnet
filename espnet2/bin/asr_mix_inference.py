@@ -206,8 +206,8 @@ class Speech2Text:
             visuals = None
         if visuals:
             visuals = [v[:, :v_len.max(), :] for v, v_len in zip(visuals, visual_lengths)]
-            for i, (v, vlens) in enumerate(zip(visuals, visual_lengths)):
-                additional[i] = {'visual': v, 'visual_length': vlens}
+            spkr_list = [{'visual': v, 'visual_length': v_len} for v, v_len in zip(visuals, visual_lengths)]
+            additional['spkr_list'] = spkr_list
         if len(additional) == 0:
             additional = None
         batch["additional"] = additional
@@ -226,7 +226,8 @@ class Speech2Text:
             if additional is None:
                 x = enc[0]
             else:
-                x = {'encoder_output': enc[0], 'additional': additional[enc_i]}
+                additional['spkr_rank'] = enc_i
+                x = {'encoder_output': enc[0], 'additional': additional}
             nbest_hyps = self.beam_search(
                 x=x, maxlenratio=self.maxlenratio, minlenratio=self.minlenratio
             )

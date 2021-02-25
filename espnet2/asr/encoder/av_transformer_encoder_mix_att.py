@@ -223,8 +223,8 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         Returns:
             position embedded tensor and mask
         """
-        visuals = [additional[i]['visual'] for i in range(self.num_spkrs)]
-        visual_lengths = [additional[i]['visual_length'] for i in range(self.num_spkrs)]
+        visuals = [additional['spkr_list'][i]['visual'] for i in range(self.num_spkrs)]
+        visual_lengths = [additional['spkr_list'][i]['visual_length'] for i in range(self.num_spkrs)]
         visuals = self._repaint_visual_paddings(visuals, visual_lengths)
         masks = (~make_pad_mask(ilens)[:, None, :]).to(xs_pad.device)
         masks_v = [(~make_pad_mask(v_lens)[:, None, :]).to(vs.device) for vs, v_lens in zip(visuals, visual_lengths)]

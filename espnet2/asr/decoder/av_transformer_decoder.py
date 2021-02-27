@@ -60,6 +60,7 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
         num_spkrs: int = 2,
         concat_decoder_output: bool = False,
         spkr_rank_aware: bool = True,
+        use_encoder_output_visual: bool = False,
     ):
         assert check_argument_types()
         super().__init__()
@@ -67,6 +68,7 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
         self.num_spkrs = num_spkrs
         self.concat_decoder_output = concat_decoder_output
         self.spkr_rank_aware = spkr_rank_aware
+        self.use_encoder_output_visual = use_encoder_output_visual
         if concat_decoder_output:
             if spkr_rank_aware:
                 decoder_output_size = attention_dim + attention_dim
@@ -99,8 +101,10 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
                 torch.nn.ReLU(),
                 pos_enc_class(attention_dim, positional_dropout_rate_visual),
             )
+        elif input_layer_v == "raw":
+            self.embed_v = None
         else:
-            raise ValueError(f"only 'linear' is supported: {input_layer_v}")
+            raise ValueError(f"only 'linear' or 'raw' is supported: {input_layer_v}")
 
         self.normalize_before = normalize_before
         if self.normalize_before:
@@ -141,13 +145,20 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
                 if use_output_layer is True,
             olens: (batch, )
         """
+        if self.use_encoder_output_visual:
+            assert 'encoder_additional_output' in additional
+            spkr_list = additional['encoder_additional_output']['spkr_list']
+        else:
+            spkr_list = additional['spkr_list']
+        vs_pad_list = [item['visual'] for item in spkr_list]
+        vlens_list = [item['visual_length'] if 'visual_length' in item else None for item in spkr_list]
+        vmasks_list = [item['visual_mask'] if 'visual_mask' in item else None for item in spkr_list]
         if 'spkr_rank' not in additional:
             assert not self.spkr_rank_aware
-            vs_pad_list, vlens_list = [item['visual'] for item in additional['spkr_list']], [item['visual_length'] for item in additional['spkr_list']]
         else:
             assert self.spkr_rank_aware
             spkr_rank = additional['spkr_rank']
-            vs_pad_list, vlens_list = [additional['spkr_list'][spkr_rank]['visual']], [additional['spkr_list'][spkr_rank]['visual_length']]
+            vs_pad_list, vlens_list, vmasks_list = vs_pad_list[spkr_rank:spkr_rank + 1], vlens_list[spkr_rank:spkr_rank + 1], vmasks_list[spkr_rank:spkr_rank + 1]
 
         tgt = ys_in_pad
         # tgt_mask: (B, 1, L)
@@ -161,10 +172,16 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
         memory_mask = (~make_pad_mask(hlens))[:, None, :].to(memory.device)
 
         visuals = vs_pad_list
-        visual_masks = [(~make_pad_mask(vlens))[:, None, :].to(visuals[0].device) for vlens in vlens_list]
+        if vmasks_list[0] is None:
+            visual_masks = [(~make_pad_mask(vlens))[:, None, :].to(visuals[0].device) for vlens in vlens_list]
+        else:
+            visual_masks = vmasks_list
 
         x = self.embed_a(tgt)
-        vs = [self.embed_v(visual) for visual in visuals]
+        if self.embed_v is not None:
+            vs = [self.embed_v(visual) for visual in visuals]
+        else:
+            vs = visuals
 
         if self.concat_decoder_output:
             x, tgt_mask = (x,) + (x,) * len(visuals), (tgt_mask,) + (tgt_mask,) * len(visuals)
@@ -239,13 +256,18 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
     def score(self, ys, state, x):
         """Score."""
         memory, additional = x['encoder_output'], x['additional']
+        if self.use_encoder_output_visual:
+            assert 'encoder_additional_output' in additional
+            spkr_list = additional['encoder_additional_output']['spkr_list']
+        else:
+            spkr_list = additional['spkr_list']
+        visuals = [item['visual'] for item in spkr_list]
         if 'spkr_rank' not in additional:
             assert not self.spkr_rank_aware
-            visuals, visual_lengths = [item['visual'] for item in additional['spkr_list']], [item['visual_length'] for item in additional['spkr_list']]
         else:
             assert self.spkr_rank_aware
             spkr_rank = additional['spkr_rank']
-            visuals, visual_lengths = [additional['spkr_list'][spkr_rank]['visual']], [additional['spkr_list'][spkr_rank]['visual_length']]
+            visuals = visuals[spkr_rank:spkr_rank + 1]
 
         ys_mask = subsequent_mask(len(ys), device=memory.device).unsqueeze(0)
         logp, state = self.forward_one_step(
@@ -271,13 +293,18 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
 
         """
         memory, additional = xs['encoder_output'], xs['additional']
+        if self.use_encoder_output_visual:
+            assert 'encoder_additional_output' in additional
+            spkr_list = additional['encoder_additional_output']['spkr_list']
+        else:
+            spkr_list = additional['spkr_list']
+        visuals = [item['visual'] for item in spkr_list]
         if 'spkr_rank' not in additional:
             assert not self.spkr_rank_aware
-            visuals, visual_lengths = [item['visual'] for item in additional['spkr_list']], [item['visual_length'] for item in additional['spkr_list']]
         else:
             assert self.spkr_rank_aware
             spkr_rank = additional['spkr_rank']
-            visuals, visual_lengths = [additional['spkr_list'][spkr_rank]['visual']], [additional['spkr_list'][spkr_rank]['visual_length']]
+            visuals = visuals[spkr_rank:spkr_rank + 1]
 
         # merge states
         n_batch = len(ys)

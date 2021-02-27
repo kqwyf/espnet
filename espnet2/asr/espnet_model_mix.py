@@ -195,6 +195,8 @@ class ESPnetASRMixModel(AbsESPnetModel):
 
         # 1. Encoder
         encoder_out, encoder_out_lens, encoder_additional_out = self.encode(**batch)
+        if encoder_additional_out is not None:
+            additional["encoder_additional_output"] = encoder_additional_out
 
         # 2a. CTC branch
         if self.ctc_weight == 0.0:
@@ -348,7 +350,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
             ys_in_lens = ys_pad_lens_new[spk] + 1
 
             # 1. Forward decoder
-            if self.spkr_rank_aware_decoder:
+            if additional is not None and self.spkr_rank_aware_decoder:
                 additional['spkr_rank'] = spk
             if isinstance(self.decoder, AbsAVDecoder):
                 dec_out, _ = self.decoder(

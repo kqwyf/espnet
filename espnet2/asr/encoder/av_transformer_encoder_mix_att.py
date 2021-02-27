@@ -64,11 +64,14 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         linear_units: int = 2048,
         num_blocks_sd: int = 4,
         num_blocks_rec: int = 8,
+        num_blocks_vis: int = 2,
         dropout_rate: float = 0.1,
         positional_dropout_rate: float = 0.1,
         self_attention_dropout_rate: float = 0.0,
         src_attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
+        input_layer_v: Optional[str] = "raw",
+        visual_transformer_input_layer: Optional[str] = "embed",
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
         concat_after: bool = False,
@@ -101,6 +104,54 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         self._output_size_v = input_size_v
         self.num_spkrs = num_spkrs
         self.encoder_layer_type = encoder_layer_type
+
+        if input_layer_v == "linear":
+            self.embed_v = torch.nn.Sequential(
+                torch.nn.Linear(input_size, output_size),
+                torch.nn.LayerNorm(output_size),
+                torch.nn.Dropout(dropout_rate),
+                torch.nn.ReLU(),
+                pos_enc_class(output_size, positional_dropout_rate),
+            )
+        elif input_layer_v == "conv2d":
+            self.embed_v = Conv2dSubsampling(input_size_v, output_size, dropout_rate)
+        elif input_layer_v == "conv2d2":
+            self.embed_v = Conv2dSubsampling2(input_size_v, output_size, dropout_rate)
+        elif input_layer_v == "conv2d6":
+            self.embed_v = Conv2dSubsampling6(input_size_v, output_size, dropout_rate)
+        elif input_layer_v == "conv2d8":
+            self.embed_v = Conv2dSubsampling8(input_size_v, output_size, dropout_rate)
+        elif input_layer_v == "embed":
+            self.embed_v = torch.nn.Sequential(
+                torch.nn.Embedding(input_size_v, output_size, padding_idx=padding_idx),
+                pos_enc_class(output_size, positional_dropout_rate),
+            )
+        elif input_layer_v is None:
+            self.embed_v = torch.nn.Sequential(
+                pos_enc_class(output_size, positional_dropout_rate)
+            )
+        elif input_layer_v == "raw":
+            self.embed_v = None
+        elif input_layer_v == "transformer":
+            self.embed_v = TransformerEncoder(
+                input_size=input_size_v,
+                output_size=output_size,
+                attention_heads=attention_heads,
+                linear_units=linear_units,
+                num_blocks=num_blocks_vis,
+                dropout_rate=dropout_rate,
+                positional_dropout_rate=positional_dropout_rate,
+                attention_dropout_rate=attention_dropout_rate,
+                input_layer=visual_transformer_input_layer,
+                pos_enc_class=pos_enc_class,
+                normalize_before=normalize_before,
+                concat_after=concat_after,
+                positionwise_layer_type=positionwise_layer_type,
+                positionwise_conv_kernel_size=positionwise_conv_kernel_size,
+                padding_idx=padding_idx,
+            )
+        else:
+            raise ValueError("unknown input_layer_v: " + input_layer_v)
 
         if positionwise_layer_type == "linear":
             positionwise_layer = PositionwiseFeedForward
@@ -240,6 +291,21 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
             xs_pad = self.embed(xs_pad)
 
         max_vlen = max([v.shape[1] for v in visuals])
+        if self.embed_v is not None:
+            if isinstance(self.embed_v, TransformerEncoder):
+                visuals, visual_lengths, _ = zip([self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)])
+                visual_masks = [None] * len(visuals)
+            elif (
+                isinstance(self.embed_v, Conv2dSubsampling)
+                or isinstance(self.embed_v, Conv2dSubsampling2)
+                or isinstance(self.embed_v, Conv2dSubsampling6)
+                or isinstance(self.embed_v, Conv2dSubsampling8)
+            ):
+                visuals, visual_masks = zip([self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)])
+                visual_lengths = [None] * len(visuals)
+            else:
+                visuals = [self.embed_v(v) for v in visuals]
+                visual_masks = [None] * len(visuals)
         xs_sd, masks_sd = [None] * self.num_spkrs, [None] * self.num_spkrs
 
         for ns in range(self.num_spkrs):
@@ -257,4 +323,14 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
                 xs_sd[ns] = self.after_norm(xs_sd[ns])
 
         olens_sd = [m.squeeze(1).sum(1) for m in masks_sd]
-        return xs_sd, olens_sd, None, None
+        encoder_additional_out = {
+            "spkr_list": [
+                {
+                    "visual": v,
+                    "visual_length": vlen,
+                    "visual_mask": vmask
+                }
+                for v, vlen, vmask in zip(visuals, visual_lengths, visual_masks)
+            ]
+        }
+        return xs_sd, olens_sd, None, encoder_additional_out

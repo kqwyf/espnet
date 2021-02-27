@@ -216,8 +216,12 @@ class Speech2Text:
         batch = to_device(batch, device=self.device)
 
         # b. Forward Encoder
-        enc_outputs, _, _ = self.asr_model.encode(**batch)
+        enc_outputs, _, encoder_additional_out = self.asr_model.encode(**batch)
         assert len(enc_outputs) == self.num_spkrs, len(enc_outputs)
+        if encoder_additional_out is not None:
+            if additional is None:
+                additional = {}
+            additional['encoder_additional_output'] = encoder_additional_out
 
         # c. Passed the encoder result and the beam search
         results_list = []
@@ -226,7 +230,8 @@ class Speech2Text:
             if additional is None:
                 x = enc[0]
             else:
-                additional['spkr_rank'] = enc_i
+                if self.asr_model.spkr_rank_aware_decoder:
+                    additional['spkr_rank'] = enc_i
                 x = {'encoder_output': enc[0], 'additional': additional}
             nbest_hyps = self.beam_search(
                 x=x, maxlenratio=self.maxlenratio, minlenratio=self.minlenratio

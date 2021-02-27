@@ -44,8 +44,8 @@ class BoundingBox(object):
                 self.maxy = int(y)
         if self.maxx <= self.minx or self.maxy <= self.miny:
             print("Box failed, return center box")
-            self.minx, self.miny = 192, 192
-            self.maxx, self.maxy = 64, 64
+            self.minx, self.miny = 64, 64
+            self.maxx, self.maxy = 192, 192
 
 
 
@@ -122,7 +122,15 @@ class VideoReader(object):
         preds = np.array(preds)
         heatmap = np.median(preds, axis=0)
 
-        bounding_box = BoundingBox(heatmap[2:15])
+        try:
+            # FIXME: I have no idea about the weird error: IndexError: invalid index to scalar variable.
+            # Just skip it.
+            bounding_box = BoundingBox(heatmap[2:15])
+        except:
+            print("video bounding box error.")
+            # return the center box
+            bounding_box = BoundingBox([(64, 64), (192, 192)])
+
 
         croped = video[:, bounding_box.miny:bounding_box.maxy,
                        bounding_box.minx:bounding_box.maxx, :]

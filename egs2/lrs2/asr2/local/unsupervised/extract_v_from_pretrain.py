@@ -1,63 +1,38 @@
 #!/usr/bin/env python3
 
-# Copyright 2018 Nagoya University (Tomoki Hayashi)
+# Copyright 2020 Shanghai Jiao Tong University (Chenda Li)
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
 import os
 import argparse
 from distutils.util import strtobool
 import logging
+from collections import OrderedDict
 
+import skvideo.io
 import kaldiio
-import numpy
-import resampy
+import numpy as np
 
 from espnet.utils.cli_utils import get_commandline_args
 from espnet.utils.cli_writers import file_writer_helper
 from espnet2.utils.types import int_or_none
-
-
+from espnet2.fileio.sound_scp import SoundScpWriter
 
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        description="extract visual feature from videos",
+        description="Extract visual feature from pretrained model",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
-        "--write-num-frames", type=str, help="Specify wspecifer for utt2num_frames"
-    )
-    parser.add_argument(
-        "--filetype",
-        type=str,
-        default="mat",
-        choices=["mat", "hdf5"],
-        help="Specify the file format for output. "
-        '"mat" is the matrix format in kaldi',
-    )
-    parser.add_argument(
-        "--compress", type=strtobool, default=False, help="Save in compressed format"
-    )
-    parser.add_argument(
-        "--compression-method",
-        type=int,
-        default=2,
-        help="Specify the method(if mat) or " "gzip-level(if hdf5)",
-    )
+
     parser.add_argument("--verbose", "-V", default=0, type=int, help="Verbose option")
 
     parser.add_argument("--job-index", default=1, type=int, help="Job index, for choosing the GPU to be used.")
     parser.add_argument("--jobs-per-gpu", default=1, type=int, help="Number of jobs per GPU, for choosing the GPU to be used.")
 
-    parser.add_argument("rspecifier", type=str, help="WAV scp file")
-    parser.add_argument(
-        "--segments",
-        type=str,
-        help="segments-file format: each line is either"
-        "<segment-id> <recording-id> <start-time> <end-time>"
-        "e.g. call-861225-A-0050-0065 call-861225-A 5.0 6.5",
-    )
-    parser.add_argument("wspecifier", type=str, help="Write specifier")
+    parser.add_argument("model_path", type=str, help="pretrained model path")
+    parser.add_argument("input_video", type=str, help="input video scp")
+    parser.add_argument("wspecifier", type=str, help="output file writer specifier")
     return parser
 
 
@@ -71,8 +46,8 @@ def main():
         devices = os.environ['CUDA_VISIBLE_DEVICES'].split(',')
         os.environ['CUDA_VISIBLE_DEVICES'] = devices[(args.job_index - 1) // args.jobs_per_gpu]
 
-    # import it here to apply cuda settings
-    from video_processing import VideoReader
+    import torch
+    from vgg_nets import VGGM_V
 
     logfmt = "%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s"
     if args.verbose > 0:
@@ -81,15 +56,42 @@ def main():
         logging.basicConfig(level=logging.WARN, format=logfmt)
     logging.info(get_commandline_args())
 
-    with VideoReader(args.rspecifier ) as reader, file_writer_helper(
+    net = VGGM_V(extract_emb=True)
+
+    pretrained_dict = torch.load(args.model_path)
+
+    v_state_dict = OrderedDict()
+    for k, v in pretrained_dict.items():
+        if 'model_v' in k:
+            name = k[8:]
+            v_state_dict[name] = v
+        else:
+            continue
+    net.load_state_dict(v_state_dict)
+    net = net.cuda()
+    net.eval()
+
+    
+    with torch.no_grad(), open(args.input_video) as input_scp, file_writer_helper(
         args.wspecifier,
-        filetype=args.filetype,
-        write_num_frames=args.write_num_frames,
-        compress=args.compress,
-        compression_method=args.compression_method,
+        filetype='mat',
+        compress=True,
+        compression_method=2,
     ) as writer:
-        for utt_id, v_feature in reader:
-            writer[utt_id] = v_feature
+        for line in input_scp:
+            line = line.strip()
+            key, v_path = line.split()[0], line.split()[1]
+            print(key, v_path)
+
+            video = skvideo.io.vread(v_path)
+            video = np.transpose(video, (3, 0, 1, 2)) / 255
+            video = torch.tensor(video.astype('float32')).cuda()
+            video = video.unsqueeze(0)
+            emb = net(video)
+            emb = emb.squeeze(0)
+            writer[key] = emb.cpu().numpy()
+
+
 
 
 if __name__ == "__main__":

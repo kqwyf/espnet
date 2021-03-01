@@ -278,7 +278,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         visual_lengths = [additional['spkr_list'][i]['visual_length'] for i in range(self.num_spkrs)]
         visuals = self._repaint_visual_paddings(visuals, visual_lengths)
         masks = (~make_pad_mask(ilens)[:, None, :]).to(xs_pad.device)
-        masks_v = [(~make_pad_mask(v_lens)[:, None, :]).to(vs.device) for vs, v_lens in zip(visuals, visual_lengths)]
+        visual_masks = [(~make_pad_mask(vlens)[:, None, :]).to(xs_pad.device) for vlens in visual_lengths]
 
         if (
             isinstance(self.embed, Conv2dSubsampling)
@@ -290,22 +290,21 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         else:
             xs_pad = self.embed(xs_pad)
 
-        max_vlen = max([v.shape[1] for v in visuals])
         if self.embed_v is not None:
             if isinstance(self.embed_v, TransformerEncoder):
-                visuals, visual_lengths, _ = zip([self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)])
-                visual_masks = [None] * len(visuals)
+                visuals, visual_lengths, _ = list(zip(*[self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)]))
+                visual_masks = [None] * len(visuals) # old masks should be dropped
             elif (
                 isinstance(self.embed_v, Conv2dSubsampling)
                 or isinstance(self.embed_v, Conv2dSubsampling2)
                 or isinstance(self.embed_v, Conv2dSubsampling6)
                 or isinstance(self.embed_v, Conv2dSubsampling8)
             ):
-                visuals, visual_masks = zip([self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)])
+                visuals, visual_masks = list(zip(*[self.embed_v(v, vmask) for v, vmask in zip(visuals, visual_masks)]))
                 visual_lengths = [None] * len(visuals)
             else:
                 visuals = [self.embed_v(v) for v in visuals]
-                visual_masks = [None] * len(visuals)
+                visual_masks = [None] * len(visuals) # old masks should be dropped
         xs_sd, masks_sd = [None] * self.num_spkrs, [None] * self.num_spkrs
 
         for ns in range(self.num_spkrs):
@@ -314,7 +313,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
             elif self.encoder_layer_type == "query_audio":
                 raise NotImplementedError("query_audio is not supported now.")
             elif self.encoder_layer_type == "query_visual":
-                xs_sd[ns], masks_sd[ns], _, _ = self.encoders_sd[ns](xs_pad, masks, visuals, masks_v)
+                xs_sd[ns], masks_sd[ns], _, _ = self.encoders_sd[ns](xs_pad, masks, visuals, visual_masks)
             else:
                 raise NotImplementedError("Support only default, query_audio or query_visual.")
             xs_sd[ns], masks_sd[ns] = self.encoders(xs_sd[ns], masks_sd[ns])

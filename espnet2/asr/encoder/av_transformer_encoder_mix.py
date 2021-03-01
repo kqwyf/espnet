@@ -69,6 +69,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
         attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
         input_layer_v: Optional[str] = "raw",
+        visual_transformer_input_layer: Optional[str] = "linear",
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
         concat_after: bool = False,
@@ -143,7 +144,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
                 dropout_rate=dropout_rate,
                 positional_dropout_rate=positional_dropout_rate,
                 attention_dropout_rate=attention_dropout_rate,
-                input_layer="embed", # FIXME: let user select the input_layer
+                input_layer=visual_transformer_input_layer,
                 pos_enc_class=pos_enc_class,
                 normalize_before=normalize_before,
                 concat_after=concat_after,
@@ -265,7 +266,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
         assert abs(max_vlen * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'Max length of visual inputs is {max_vlen}, which is too long or too short comparing with max speech feat length {xs_pad.shape[1]}.'
         if self.embed_v is not None:
             if isinstance(self.embed_v, TransformerEncoder):
-                visuals, visual_lengths, _ = list(*zip([self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)]))
+                visuals, visual_lengths, _ = list(zip(*[self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)]))
                 visual_masks = [None] * len(visuals) # old masks should be dropped
             elif (
                 isinstance(self.embed_v, Conv2dSubsampling)

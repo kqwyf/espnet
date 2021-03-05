@@ -289,6 +289,7 @@ class ESPnetDataset(AbsDataset):
         int_dtype: str = "long",
         max_cache_size: Union[float, int, str] = 0.0,
         max_cache_fd: int = 0,
+        trunc_length: dict = {},
     ):
         assert check_argument_types()
         if len(path_name_type_list) == 0:
@@ -298,6 +299,7 @@ class ESPnetDataset(AbsDataset):
 
         path_name_type_list = copy.deepcopy(path_name_type_list)
         self.preprocess = preprocess
+        self.trunc_length = trunc_length
 
         self.float_dtype = float_dtype
         self.int_dtype = int_dtype
@@ -418,6 +420,11 @@ class ESPnetDataset(AbsDataset):
                 value = value.numpy()
             elif isinstance(value, numbers.Number):
                 value = np.array([value])
+
+            # truncate length
+            if name in self.trunc_length:
+                value = value[:self.trunc_length[name]]
+
             data[name] = value
 
         # 2. [Option] Apply preprocessing

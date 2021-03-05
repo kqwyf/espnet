@@ -35,7 +35,7 @@ encoder_conf:
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
     attention_dropout_rate: 0.0
-    input_layer: conv2d2
+    input_layer: conv2d
     normalize_before: true
 
 decoder: transformer
@@ -51,6 +51,7 @@ decoder_conf:
 ctc_conf:
     dropout_rate: 0.0
     reduce: False # must be False for using PIT
+    input_layer: convtr1d
 
 model_conf:
     ctc_weight: 0.3

@@ -26,6 +26,7 @@ from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsamplin
 from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsampling2
 from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsampling6
 from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsampling8
+from espnet2.layers.convolutions import Conv1dRes
 from espnet2.asr.encoder.abs_av_encoder import AbsAVEncoder
 from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
 
@@ -71,7 +72,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         src_attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
         input_layer_v: Optional[str] = "raw",
-        visual_transformer_input_layer: Optional[str] = "embed",
+        visual_transformer_input_layer: Optional[str] = "linear",
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
         concat_after: bool = False,
@@ -105,6 +106,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         self.num_spkrs = num_spkrs
         self.encoder_layer_type = encoder_layer_type
 
+        hidden_visual_size = output_size
         if input_layer_v == "linear":
             self.embed_v = torch.nn.Sequential(
                 torch.nn.Linear(input_size, output_size),
@@ -113,18 +115,12 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
                 torch.nn.ReLU(),
                 pos_enc_class(output_size, positional_dropout_rate),
             )
-        elif input_layer_v == "conv2d":
-            self.embed_v = Conv2dSubsampling(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "conv2d2":
-            self.embed_v = Conv2dSubsampling2(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "conv2d6":
-            self.embed_v = Conv2dSubsampling6(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "conv2d8":
-            self.embed_v = Conv2dSubsampling8(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "embed":
-            self.embed_v = torch.nn.Sequential(
-                torch.nn.Embedding(input_size_v, output_size, padding_idx=padding_idx),
-                pos_enc_class(output_size, positional_dropout_rate),
+        elif input_layer_v == "conv1d":
+            self.embed_v = Conv1dRes(
+                input_size_v,
+                output_size,
+                dropout_rate=dropout_rate,
+                pos_enc=pos_enc_class(output_size, positional_dropout_rate),
             )
         elif input_layer_v is None:
             self.embed_v = torch.nn.Sequential(
@@ -132,6 +128,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
             )
         elif input_layer_v == "raw":
             self.embed_v = None
+            hidden_visual_size = input_size_v
         elif input_layer_v == "transformer":
             self.embed_v = TransformerEncoder(
                 input_size=input_size_v,
@@ -141,7 +138,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
                 num_blocks=num_blocks_vis,
                 dropout_rate=dropout_rate,
                 positional_dropout_rate=positional_dropout_rate,
-                attention_dropout_rate=attention_dropout_rate,
+                attention_dropout_rate=self_attention_dropout_rate,
                 input_layer=visual_transformer_input_layer,
                 pos_enc_class=pos_enc_class,
                 normalize_before=normalize_before,
@@ -193,7 +190,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         elif encoder_layer_type == "query_audio":
             raise NotImplementedError("query_audio is not supported now.")
             encoder_layer_lambda = lambda lnum: AVEncoderLayer(
-                input_size_v,
+                hidden_size_v,
                 output_size,
                 1,
                 MultiHeadedAttention(
@@ -210,7 +207,7 @@ class AV_TransformerEncoderMixAtt(AbsAVEncoder, TransformerEncoder, torch.nn.Mod
         elif encoder_layer_type == "query_visual":
             encoder_layer_lambda = lambda lnum: AVEncoderLayer(
                 output_size,
-                input_size_v,
+                hidden_visual_size,
                 num_spkrs,
                 MultiHeadedAttention(
                     attention_heads, output_size, self_attention_dropout_rate

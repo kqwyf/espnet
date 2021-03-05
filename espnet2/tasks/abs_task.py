@@ -171,6 +171,7 @@ class IteratorOptions:
     batch_size: int
     batch_bins: int
     batch_type: str
+    trunc_length: dict
     max_cache_size: float
     max_cache_fd: int
     distributed: bool
@@ -677,6 +678,13 @@ class AbsTask(ABC):
             type=str2bool,
             default=False,
             help="Use multiple iterator mode",
+        )
+        group.add_argument(
+            "--trunc_length",
+            type=str,
+            action="append",
+            default=[],
+            help="Truncate length of specified data in training. e.g. speech:1000",
         )
 
         group = parser.add_argument_group("Chunk iterator related")
@@ -1333,6 +1341,7 @@ class AbsTask(ABC):
             batch_size = args.batch_size
             batch_bins = args.batch_bins
             batch_type = args.batch_type
+            trunc_length = {item.split(':')[0]: int(item.split(':')[1]) for item in args.trunc_length}
             max_cache_size = args.max_cache_size
             max_cache_fd = args.max_cache_fd
             distributed = distributed_option.distributed
@@ -1368,6 +1377,7 @@ class AbsTask(ABC):
             num_batches = None
             num_iters_per_epoch = None
             train = False
+            trunc_length = {}
 
         elif mode == "plot_att":
             preprocess_fn = cls.build_preprocess_fn(args, train=False)
@@ -1385,6 +1395,7 @@ class AbsTask(ABC):
             distributed = False
             num_iters_per_epoch = None
             train = False
+            trunc_length = {}
         else:
             raise NotImplementedError(f"mode={mode}")
 
@@ -1397,6 +1408,7 @@ class AbsTask(ABC):
             batch_size=batch_size,
             batch_bins=batch_bins,
             num_batches=num_batches,
+            trunc_length=trunc_length,
             max_cache_size=max_cache_size,
             max_cache_fd=max_cache_fd,
             distributed=distributed,
@@ -1475,6 +1487,7 @@ class AbsTask(ABC):
             iter_options.data_path_and_name_and_type,
             float_dtype=args.train_dtype,
             preprocess=iter_options.preprocess_fn,
+            trunc_length=iter_options.trunc_length,
             max_cache_size=iter_options.max_cache_size,
             max_cache_fd=iter_options.max_cache_fd,
         )
@@ -1556,6 +1569,7 @@ class AbsTask(ABC):
             iter_options.data_path_and_name_and_type,
             float_dtype=args.train_dtype,
             preprocess=iter_options.preprocess_fn,
+            trunc_length=iter_options.trunc_length,
             max_cache_size=iter_options.max_cache_size,
             max_cache_fd=iter_options.max_cache_fd,
         )

@@ -25,6 +25,7 @@ from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsamplin
 from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsampling2
 from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsampling6
 from espnet.nets.pytorch_backend.transformer.subsampling import Conv2dSubsampling8
+from espnet2.layers.convolutions import Conv1dRes
 from espnet2.asr.encoder.abs_av_encoder import AbsAVEncoder
 from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
 
@@ -114,18 +115,12 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
                 torch.nn.ReLU(),
                 pos_enc_class(output_size, positional_dropout_rate),
             )
-        elif input_layer_v == "conv2d":
-            self.embed_v = Conv2dSubsampling(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "conv2d2":
-            self.embed_v = Conv2dSubsampling2(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "conv2d6":
-            self.embed_v = Conv2dSubsampling6(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "conv2d8":
-            self.embed_v = Conv2dSubsampling8(input_size_v, output_size, dropout_rate)
-        elif input_layer_v == "embed":
-            self.embed_v = torch.nn.Sequential(
-                torch.nn.Embedding(input_size_v, output_size, padding_idx=padding_idx),
-                pos_enc_class(output_size, positional_dropout_rate),
+        elif input_layer_v == "conv1d":
+            self.embed_v = Conv1dRes(
+                input_size_v,
+                output_size,
+                dropout_rate=dropout_rate,
+                pos_enc=pos_enc_class(output_size, positional_dropout_rate),
             )
         elif input_layer_v is None:
             self.embed_v = torch.nn.Sequential(
@@ -263,7 +258,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
             xs_pad = self.embed(xs_pad)
 
         max_vlen = max([v.shape[1] for v in visuals])
-        assert abs(max_vlen * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'Max length of visual inputs is {max_vlen}, which is too long or too short comparing with max speech feat length {xs_pad.shape[1]}.'
+        #assert abs(max_vlen * 2 - xs_pad.shape[1]) / xs_pad.shape[1] < 0.05, f'Max length of visual inputs is {max_vlen}, which is too long or too short comparing with max speech feat length {xs_pad.shape[1]}.'
         if self.embed_v is not None:
             if isinstance(self.embed_v, TransformerEncoder):
                 visuals, visual_lengths, _ = list(zip(*[self.embed_v(v, vlens) for v, vlens in zip(visuals, visual_lengths)]))

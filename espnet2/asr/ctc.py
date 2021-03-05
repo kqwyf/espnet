@@ -4,6 +4,8 @@ import torch
 import torch.nn.functional as F
 from typeguard import check_argument_types
 
+from espnet2.layers.convolutions import Conv1dUpsampling
+
 
 class CTC(torch.nn.Module):
     """CTC module.
@@ -24,14 +26,22 @@ class CTC(torch.nn.Module):
         ctc_type: str = "builtin",
         reduce: bool = True,
         ignore_nan_grad: bool = False,
+        input_layer: str = "linear",
     ):
         assert check_argument_types()
         super().__init__()
         eprojs = encoder_output_sizse
         self.dropout_rate = dropout_rate
-        self.ctc_lo = torch.nn.Linear(eprojs, odim)
         self.ctc_type = ctc_type
         self.ignore_nan_grad = ignore_nan_grad
+
+        self.input_layer = input_layer
+        if input_layer == "linear":
+            self.ctc_lo = torch.nn.Linear(eprojs, odim)
+        elif input_layer == "convtr1d":
+            self.ctc_lo = Conv1dUpsampling(eprojs, odim)
+        else:
+            raise ValueError("unknown ctc input_layer: " + input_layer)
 
         if self.ctc_type == "builtin":
             self.ctc_loss = torch.nn.CTCLoss(reduction="none")
@@ -131,7 +141,10 @@ class CTC(torch.nn.Module):
             ys_lens: batch of lengths of character sequence (B)
         """
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
-        ys_hat = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate))
+        if self.input_layer.startswith("conv"):
+            ys_hat, hlens = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate), hlens)
+        else:
+            ys_hat = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate))
         # ys_hat: (B, L, D) -> (L, B, D)
         ys_hat = ys_hat.transpose(0, 1)
 

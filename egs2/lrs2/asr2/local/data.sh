@@ -23,6 +23,8 @@ min_or_max=max # min, max, or fix
 pretrain_model=lrw # lrw or unsupervised or none
 pretrain_model_path=./local/unsupervised/exp/models/3.pt
 sample_rate=8k
+length_rate=0.2 # the difference of the lengths of the longer speech and the shorter speech should be less than length_rate relative to the longer.
+max_length=240000 # max number of samples. longer speech will be truncated.
 
 log "$0 $*"
 . utils/parse_options.sh
@@ -37,7 +39,11 @@ fi
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     for dataset in train val test; do
         mkdir -p data/${dataset}
-        awk  -v lrs2=${LRS2} -F '[/ ]' '{print $1"_"$2, lrs2"/main/"$1"/"$2".mp4"}' ${LRS2}/${dataset}.txt | sort > data/${dataset}/video.scp
+        awk  -v lrs2=${LRS2} -v dataset=${dataset} -F '[/ ]' '{print dataset"_"$1"_"$2, lrs2"/main/"$1"/"$2".mp4"}' ${LRS2}/${dataset}.txt | sort > data/${dataset}/video.scp
+        if [ "${dataset}" = train ]; then
+            awk  -v lrs2=${LRS2} -F '[/ ]' '{print "pretrain_"$1"_"$2, lrs2"/pretrain/"$1"/"$2".mp4"}' ${LRS2}/pretrain.txt | sort >> data/${dataset}/video.scp
+            sort data/${dataset}/video.scp -o data/${dataset}/video.scp
+        fi
         awk '{print $1, "ffmpeg -i " $2 " -ar 16000 -ac 1  -f wav pipe:1 |" }' data/${dataset}/video.scp > data/${dataset}/wav.scp
         awk '{print $2}' data/${dataset}/video.scp | sed -e 's/.mp4/.txt/g' | while read line 
         do 
@@ -47,6 +53,11 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
         rm data/${dataset}/text_tmp
         awk '{print $1, $1}' data/${dataset}/wav.scp > data/${dataset}/utt2spk
         awk '{print $1, $1}' data/${dataset}/wav.scp > data/${dataset}/spk2utt
+        rm -f data/${dataset}/utt2num_samples
+        while read -r f; do
+            num_samples=$(ffprobe -i $(echo ${f} | cut -d ' ' -f 2) -select_streams a -show_entries stream=duration_ts -v quiet -of csv="p=0")
+            echo $(echo ${f} | cut -d ' ' -f 1) ${num_samples} >> data/${dataset}/utt2num_samples
+        done < "data/${dataset}/video.scp"
 
     done
 fi
@@ -98,7 +109,7 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         echo "create mixture for ${dataset}"
 
         mkdir -p local/mixture_list
-        ./local/generate_mixture_list.py < data/${dataset}/wav.scp > local/mixture_list/${dataset}
+        ./local/generate_mixture_list.py data/${dataset}/utt2num_samples "${length_rate}" < data/${dataset}/wav.scp > local/mixture_list/${dataset}
         
         log_dir=data/${dataset}/split_${nj}_${min_or_max}
         split_scps=""

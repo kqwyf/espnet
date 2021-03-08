@@ -31,7 +31,7 @@ from espnet2.asr.decoder.av_transformer_decoder import AV_TransformerDecoder
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
 from espnet2.asr.encoder.rnn_encoder_mix import RNNEncoderMix
 from espnet2.asr.encoder.transformer_encoder_mix import TransformerEncoderMix
-from espnet2.asr.encoder.av_transformer_encoder_mix import AV_TransformerEncoderMix
+from espnet2.asr.encoder.av_transformer_encoder_mix_naive import AV_TransformerEncoderMixNaive
 from espnet2.asr.encoder.av_transformer_encoder_mix_att import AV_TransformerEncoderMixAtt
 from espnet2.asr.encoder.vgg_rnn_encoder_mix import VGGRNNEncoderMix
 from espnet2.asr.espnet_model_mix import ESPnetASRMixModel
@@ -81,7 +81,7 @@ encoder_choices = ClassChoices(
     "encoder",
     classes=dict(
         transformer=TransformerEncoderMix,
-        av_transformer=AV_TransformerEncoderMix,
+        av_transformer_naive=AV_TransformerEncoderMixNaive,
         av_transformer_att=AV_TransformerEncoderMixAtt,
         vgg_rnn=VGGRNNEncoderMix,
         rnn=RNNEncoderMix,

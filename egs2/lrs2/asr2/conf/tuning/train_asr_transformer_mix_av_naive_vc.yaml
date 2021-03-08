@@ -24,7 +24,7 @@ frontend_conf:
     hop_length: 160
     frontend_conf: null
 
-encoder: av_transformer
+encoder: av_transformer_naive
 encoder_conf:
     input_size_v: 512
     output_size: 256
@@ -38,6 +38,7 @@ encoder_conf:
     input_layer: conv2d
     input_layer_v: conv1d
     normalize_before: true
+    use_visual_in: sd
 
 decoder: transformer
 decoder_conf:

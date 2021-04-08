@@ -1,7 +1,7 @@
 batch_type: folded
-batch_size: 80
+batch_size: 60
 num_workers: 4
-accum_grad: 3
+accum_grad: 4
 max_epoch: 100
 patience: none
 # The initialization method for model parameters
@@ -24,7 +24,7 @@ frontend_conf:
     hop_length: 160
     frontend_conf: null
 
-encoder: av_transformer_att
+encoder: av_transformer_naive
 encoder_conf:
     input_size_v: 512
     output_size: 256
@@ -32,17 +32,19 @@ encoder_conf:
     linear_units: 2048
     num_blocks_sd: 4
     num_blocks_rec: 8
+    num_blocks_vis: 2
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
-    self_attention_dropout_rate: 0.0
-    src_attention_dropout_rate: 0.0
+    attention_dropout_rate: 0.0
     input_layer: conv2d2
-    input_layer_v: conv1d
+    input_layer_v: transformer
     normalize_before: true
-    encoder_layer_type: query_visual
+    use_visual_in: rec
 
 decoder: av_transformer
 decoder_conf:
+    num_spkrs: 2
+    spkr_rank_aware: false # should be false when not using visual information in separator
     visual_input_size: 512
     attention_heads: 4
     linear_units: 2048
@@ -65,6 +67,7 @@ ctc_conf:
 model_conf:
     ctc_weight: 0.3
     lsm_weight: 0.1
+    spkr_rank_aware_decoder: false # should be false when not using visual information in separator
 
 optim: adam
 optim_conf:

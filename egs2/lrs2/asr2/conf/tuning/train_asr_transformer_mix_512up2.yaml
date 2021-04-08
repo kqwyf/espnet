@@ -24,43 +24,33 @@ frontend_conf:
     hop_length: 160
     frontend_conf: null
 
-encoder: av_transformer_att
+encoder: transformer
 encoder_conf:
-    input_size_v: 512
-    output_size: 256
+    output_size: 512
     attention_heads: 4
     linear_units: 2048
     num_blocks_sd: 4
     num_blocks_rec: 8
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
-    self_attention_dropout_rate: 0.0
-    src_attention_dropout_rate: 0.0
-    input_layer: conv2d2
-    input_layer_v: conv1d
+    attention_dropout_rate: 0.0
+    input_layer: conv2d
     normalize_before: true
-    encoder_layer_type: query_visual
 
-decoder: av_transformer
+decoder: transformer
 decoder_conf:
-    visual_input_size: 512
     attention_heads: 4
     linear_units: 2048
     num_blocks: 6
     dropout_rate: 0.1
-    positional_dropout_rate_audio: 0.1
-    positional_dropout_rate_visual: 0.1
-    input_layer_a: embed
-    input_layer_v: linear
+    positional_dropout_rate: 0.1
     self_attention_dropout_rate: 0.0
     src_attention_dropout_rate: 0.0
-    decoder_layer_type: dual_attention
-    concat_decoder_output: false # should be true when using 'dual_decoder'
 
 ctc_conf:
     dropout_rate: 0.0
     reduce: False # must be False for using PIT
-    input_layer: linear
+    input_layer: convchn1d
 
 model_conf:
     ctc_weight: 0.3

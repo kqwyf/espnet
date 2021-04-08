@@ -262,8 +262,10 @@ chartoken_list="${token_listdir}"/char/tokens.txt
 # shellcheck disable=SC2034
 wordtoken_list="${token_listdir}"/word/tokens.txt
 
+token_tag=${token_type}
 if [ "${token_type}" = bpe ]; then
     token_list="${bpetoken_list}"
+    token_tag=bpe${nbpe}
 elif [ "${token_type}" = char ]; then
     token_list="${chartoken_list}"
     bpemodel=none
@@ -281,14 +283,18 @@ else
     lm_token_list="${token_list}"
     lm_token_type="${token_type}"
 fi
-
+if [ "${lm_token_type}" = "bpe" ]; then
+    lm_token_tag=bpe${nbpe}
+else
+    lm_token_tag=${lm_token_type}
+fi
 
 # Set tag for naming of model directory
 if [ -z "${asr_tag}" ]; then
     if [ -n "${asr_config}" ]; then
-        asr_tag="$(basename "${asr_config}" .yaml)_${feats_type}_${token_type}"
+        asr_tag="$(basename "${asr_config}" .yaml)_${feats_type}_${token_tag}"
     else
-        asr_tag="train_${feats_type}_${token_type}"
+        asr_tag="train_${feats_type}_${token_tag}"
     fi
     # Add overwritten arg's info
     if [ -n "${asr_args}" ]; then
@@ -300,9 +306,9 @@ if [ -z "${asr_tag}" ]; then
 fi
 if [ -z "${lm_tag}" ]; then
     if [ -n "${lm_config}" ]; then
-        lm_tag="$(basename "${lm_config}" .yaml)_${lm_token_type}"
+        lm_tag="$(basename "${lm_config}" .yaml)_${lm_token_tag}"
     else
-        lm_tag="train_${lm_token_type}"
+        lm_tag="train_${lm_token_tag}"
     fi
     # Add overwritten arg's info
     if [ -n "${lm_args}" ]; then
@@ -637,6 +643,12 @@ fi
 # ========================== Data preparation is done here. ==========================
 
 
+jobname_prefix="lrs2_mix"
+if [[ "$(basename ${asr_exp})" == asr_train_asr_transformer_mix* ]]; then
+    jobname_suffix="${asr_exp:30}"
+else
+    jobname_suffix="${asr_exp:4}"
+fi
 if ! "${skip_train}"; then
     # ========================== LM Begins ==========================
     if "${use_lm}"; then
@@ -669,7 +681,7 @@ if ! "${skip_train}"; then
             fi
 
             # 1. Split the key file
-            _logdir="${lm_stats_dir}/logdir"
+            _logdir="${lm_stats_dir}/logdir_${lm_token_tag}"
             mkdir -p "${_logdir}"
             # Get the minimum number among ${nj} and the number lines of input files
             _nj=$(min "${nj}" "$(<${data_feats}/srctexts wc -l)" "$(<${lm_dev_text} wc -l)")
@@ -724,11 +736,11 @@ if ! "${skip_train}"; then
             # Append the num-tokens at the last dimensions. This is used for batch-bins count
             <"${lm_stats_dir}/train/text_shape" \
                 awk -v N="$(<${lm_token_list} wc -l)" '{ print $0 "," N }' \
-                >"${lm_stats_dir}/train/text_shape.${lm_token_type}"
+                >"${lm_stats_dir}/train/text_shape.${lm_token_tag}"
 
             <"${lm_stats_dir}/valid/text_shape" \
                 awk -v N="$(<${lm_token_list} wc -l)" '{ print $0 "," N }' \
-                >"${lm_stats_dir}/valid/text_shape.${lm_token_type}"
+                >"${lm_stats_dir}/valid/text_shape.${lm_token_tag}"
         fi
 
 
@@ -755,7 +767,7 @@ if ! "${skip_train}"; then
                 if [ ! -f "${_split_dir}/.done" ]; then
                     rm -f "${_split_dir}/.done"
                     python3 -m espnet2.bin.split_scps \
-                    --scps "${data_feats}/srctexts" "${lm_stats_dir}/train/text_shape.${lm_token_type}" \
+                    --scps "${data_feats}/srctexts" "${lm_stats_dir}/train/text_shape.${lm_token_tag}" \
                     --num_splits "${num_splits_lm}" \
                     --output_dir "${_split_dir}"
                     touch "${_split_dir}/.done"
@@ -764,20 +776,21 @@ if ! "${skip_train}"; then
                 fi
 
                 _opts+="--train_data_path_and_name_and_type ${_split_dir}/srctexts,text,text "
-                _opts+="--train_shape_file ${_split_dir}/text_shape.${lm_token_type} "
+                _opts+="--train_shape_file ${_split_dir}/text_shape.${lm_token_tag} "
                 _opts+="--multiple_iterator true "
 
             else
                 _opts+="--train_data_path_and_name_and_type ${data_feats}/srctexts,text,text "
-                _opts+="--train_shape_file ${lm_stats_dir}/train/text_shape.${lm_token_type} "
+                _opts+="--train_shape_file ${lm_stats_dir}/train/text_shape.${lm_token_tag} "
             fi
 
             # NOTE(kamo): --fold_length is used only if --batch_type=folded and it's ignored in the other case
+            jobname="${jobname_prefix}_lm_${jobname_suffix}"
 
             log "LM training started... log: '${lm_exp}/train.log'"
             # shellcheck disable=SC2086
             python3 -m espnet2.bin.launch \
-                --cmd "${cuda_cmd} --name ${lm_exp}/train.log" \
+                --cmd "${cuda_cmd} --name ${jobname}" \
                 --log "${lm_exp}"/train.log \
                 --ngpu "${ngpu}" \
                 --num_nodes "${num_nodes}" \
@@ -793,7 +806,7 @@ if ! "${skip_train}"; then
                     --cleaner "${cleaner}" \
                     --g2p "${g2p}" \
                     --valid_data_path_and_name_and_type "${lm_dev_text},text,text" \
-                    --valid_shape_file "${lm_stats_dir}/valid/text_shape.${lm_token_type}" \
+                    --valid_shape_file "${lm_stats_dir}/valid/text_shape.${lm_token_tag}" \
                     --fold_length "${lm_fold_length}" \
                     --resume true \
                     --output_dir "${lm_exp}" \
@@ -856,7 +869,7 @@ if ! "${skip_train}"; then
         fi
 
         # 1. Split the key file
-        _logdir="${asr_stats_dir}/logdir"
+        _logdir="${asr_stats_dir}/logdir_${token_tag}"
         mkdir -p "${_logdir}"
 
         # Get the minimum number among ${nj} and the number lines of input files
@@ -925,11 +938,11 @@ if ! "${skip_train}"; then
         for spk in $(seq "${spk_num}"); do
             <"${asr_stats_dir}/train/text_ref${spk}_shape" \
                 awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
-                >"${asr_stats_dir}/train/text_ref${spk}_shape.${token_type}"
+                >"${asr_stats_dir}/train/text_ref${spk}_shape.${token_tag}"
 
             <"${asr_stats_dir}/valid/text_ref${spk}_shape" \
                 awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
-                >"${asr_stats_dir}/valid/text_ref${spk}_shape.${token_type}"
+                >"${asr_stats_dir}/valid/text_ref${spk}_shape.${token_tag}"
         done
     fi
 
@@ -978,7 +991,7 @@ if ! "${skip_train}"; then
                 text_shape_params=""
                 for spk in $(seq "${spk_num}"); do
                     text_params+="${_asr_train_dir}/text_spk${spk} "
-                    text_shape_params+="${asr_stats_dir}/train/text_ref${spk}_shape.${token_type}"
+                    text_shape_params+="${asr_stats_dir}/train/text_ref${spk}_shape.${token_tag}"
                 done
                 ${python} -m espnet2.bin.split_scps \
                   --scps \
@@ -999,7 +1012,7 @@ if ! "${skip_train}"; then
             done
             _opts+="--train_shape_file ${_split_dir}/speech_shape "
             for spk in $(seq "${spk_num}"); do
-                _opts+="--train_shape_file ${_split_dir}/text_ref${spk}_shape.${token_type} "
+                _opts+="--train_shape_file ${_split_dir}/text_ref${spk}_shape.${token_tag} "
             done
             _opts+="--multiple_iterator true "
 
@@ -1010,7 +1023,7 @@ if ! "${skip_train}"; then
             done
             _opts+="--train_shape_file ${asr_stats_dir}/train/speech_shape "
             for spk in $(seq "${spk_num}"); do
-                _opts+="--train_shape_file ${asr_stats_dir}/train/text_ref${spk}_shape.${token_type} "
+                _opts+="--train_shape_file ${asr_stats_dir}/train/text_ref${spk}_shape.${token_tag} "
             done
         fi
 
@@ -1019,19 +1032,14 @@ if ! "${skip_train}"; then
 
         # NOTE(kamo): --fold_length is used only if --batch_type=folded and it's ignored in the other case
         log "ASR training started... log: '${asr_exp}/train.log'"
-        if echo "${cuda_cmd}" | grep -e queue.pl -e queue-freegpu.pl &> /dev/null; then
-            # SGE can't include "/" in a job name
-            jobname="$(basename ${asr_exp})"
-        else
-            jobname="${asr_exp}/train.log"
-        fi
+        jobname="${jobname_prefix}_tr_${jobname_suffix}"
 
         _valid_data_param="--valid_data_path_and_name_and_type ${_asr_valid_dir}/${_scp},speech,${_type} "
         _valid_shape_param="--valid_shape_file ${asr_stats_dir}/valid/speech_shape "
         _fold_length_param=""
         for spk in $(seq "${spk_num}"); do
             _valid_data_param+="--valid_data_path_and_name_and_type ${_asr_valid_dir}/text_spk${spk},text_ref${spk},text "
-            _valid_shape_param+="--valid_shape_file ${asr_stats_dir}/valid/text_ref${spk}_shape.${token_type} "
+            _valid_shape_param+="--valid_shape_file ${asr_stats_dir}/valid/text_ref${spk}_shape.${token_tag} "
             _fold_length_param+="--fold_length ${asr_text_fold_length} "
         done
 
@@ -1168,8 +1176,9 @@ if ! "${skip_eval}"; then
 
             # 2. Submit decoding jobs
             log "Decoding started... log: '${_logdir}/asr_inference.*.log'"
+            jobname="${jobname_prefix}_ev_${jobname_suffix}"
             # shellcheck disable=SC2086
-            ${_cmd} --gpu "${_ngpu}" JOB=1:"${_nj}" "${_logdir}"/asr_inference.JOB.log \
+            ${_cmd} --name "${jobname}" --gpu "${_ngpu}" JOB=1:"${_nj}" "${_logdir}"/asr_inference.JOB.log \
                 ${python} -m espnet2.bin.asr_mix_inference \
                     --ngpu "${_ngpu}" \
                     --data_path_and_name_and_type "${_data}/${_scp},speech,${_type}" ${_additional_features} \

@@ -20,6 +20,7 @@ test_sets="test_${min_or_max}_2mix"
     --token_type char \
     --lm_config conf/tuning/train_lm.yaml \
     --asr_config conf/tuning/train_asr_transformer_mix.yaml \
+    --inference_config conf/tuning/inference_asr_transformer_mix.yaml \
     --train_set "${train_set}" \
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \

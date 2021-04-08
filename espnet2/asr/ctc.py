@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from typeguard import check_argument_types
 
 from espnet2.layers.convolutions import Conv1dUpsampling
+from espnet2.layers.convolutions import Conv1dChannelUpsampling
 
 
 class CTC(torch.nn.Module):
@@ -35,11 +36,20 @@ class CTC(torch.nn.Module):
         self.ctc_type = ctc_type
         self.ignore_nan_grad = ignore_nan_grad
 
+        if input_layer.startswith('nearest'):
+            upsampling_factor, input_layer = input_layer[7:].split('-')
+            self.upsampling_factor = float(upsampling_factor)
+        else:
+            self.upsampling_factor = None
         self.input_layer = input_layer
-        if input_layer == "linear":
+        if input_layer == "linear2":
+            self.ctc_lo = torch.nn.Linear(eprojs, odim * 2)
+        elif input_layer == "linear":
             self.ctc_lo = torch.nn.Linear(eprojs, odim)
         elif input_layer == "convtr1d":
             self.ctc_lo = Conv1dUpsampling(eprojs, odim)
+        elif input_layer == "convchn1d":
+            self.ctc_lo = Conv1dChannelUpsampling(eprojs, odim)
         else:
             raise ValueError("unknown ctc input_layer: " + input_layer)
 
@@ -145,6 +155,12 @@ class CTC(torch.nn.Module):
             ys_hat, hlens = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate), hlens)
         else:
             ys_hat = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate))
+            if self.input_layer == "linear2":
+                ys_hat = ys_hat.view(ys_hat.shape[0], ys_hat.shape[1] * 2, ys_hat.shape[2] // 2)
+                hlens = hlens * 2
+        if self.input_layer.startswith("nearest"):
+            ys_hat = torch.nn.functional.interpolate(ys_hat.transpose(2, 1), int(ys_hat.shape[1] * self.upsampling_factor)).transpose(2, 1)
+            hlens = (hlens * self.upsampling_factor).to(hlens.dtype)
         # ys_hat: (B, L, D) -> (L, B, D)
         ys_hat = ys_hat.transpose(0, 1)
 
@@ -165,7 +181,10 @@ class CTC(torch.nn.Module):
         Returns:
             torch.Tensor: log softmax applied 3d tensor (B, Tmax, odim)
         """
-        return F.log_softmax(self.ctc_lo(hs_pad), dim=2)
+        ys_hat = self.ctc_lo(hs_pad)
+        if self.upsampling_factor is not None:
+            ys_hat = torch.nn.functional.interpolate(ys_hat.transpose(2, 1), int(ys_hat.shape[1] * self.upsampling_factor)).transpose(2, 1)
+        return F.log_softmax(ys_hat, dim=2)
 
     def argmax(self, hs_pad):
         """argmax of frame activations
@@ -175,4 +194,7 @@ class CTC(torch.nn.Module):
         Returns:
             torch.Tensor: argmax applied 2d tensor (B, Tmax)
         """
-        return torch.argmax(self.ctc_lo(hs_pad), dim=2)
+        ys_hat = self.ctc_lo(hs_pad)
+        if self.upsampling_factor is not None:
+            ys_hat = torch.nn.functional.interpolate(ys_hat.transpose(2, 1), int(ys_hat.shape[1] * self.upsampling_factor)).transpose(2, 1)
+        return torch.argmax(ys_hat, dim=2)

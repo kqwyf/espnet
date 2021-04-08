@@ -1,7 +1,7 @@
 batch_type: folded
-batch_size: 64
+batch_size: 80
 num_workers: 4
-accum_grad: 4
+accum_grad: 3
 max_epoch: 100
 patience: none
 # The initialization method for model parameters
@@ -35,7 +35,7 @@ encoder_conf:
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
     attention_dropout_rate: 0.0
-    input_layer: conv2d
+    input_layer: conv2d2
     input_layer_v: conv1d
     normalize_before: true
     use_visual_in: sd
@@ -53,7 +53,7 @@ decoder_conf:
 ctc_conf:
     dropout_rate: 0.0
     reduce: False # must be False for using PIT
-    input_layer: convtr1d
+    input_layer: linear
 
 model_conf:
     ctc_weight: 0.3

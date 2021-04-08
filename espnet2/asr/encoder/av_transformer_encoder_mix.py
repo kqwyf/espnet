@@ -70,6 +70,7 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
         attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
         input_layer_v: Optional[str] = "raw",
+        subsample_layer: Optional[str] = None,
         visual_transformer_input_layer: Optional[str] = "linear",
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
@@ -149,6 +150,19 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
             )
         else:
             raise ValueError("unknown input_layer_v: " + input_layer_v)
+
+        if subsample_layer == "conv2d":
+            self.subsample = Conv2dSubsampling(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d2":
+            self.subsample = Conv2dSubsampling2(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d6":
+            self.subsample = Conv2dSubsampling6(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d8":
+            self.subsample = Conv2dSubsampling8(output_size, output_size, dropout_rate)
+        elif subsample_layer is None:
+            self.subsample = None
+        else:
+            raise ValueError("unknown subsample_layer: " + subsample_layer)
 
         assert not (concat_av_after_sep and not proj_av_after_sep)
         if not concat_av_after_sep and proj_av_after_sep:
@@ -274,8 +288,8 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
             else:
                 visuals = [self.embed_v(v) for v in visuals]
                 visual_masks = [None] * len(visuals) # old masks should be dropped
-        visuals = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
         if not self.concat_av_after_sep:
+            visuals = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
             xs_pad = torch.cat((xs_pad, *visuals), dim=2)
         if not self.proj_av_after_sep:
             xs_pad = self.hidden_linear(xs_pad)
@@ -283,8 +297,11 @@ class AV_TransformerEncoderMix(AbsAVEncoder, TransformerEncoder, torch.nn.Module
 
         for ns in range(self.num_spkrs):
             xs_sd[ns], masks_sd[ns] = self.encoders_sd[ns](xs_pad, masks)
-            if not self.concat_av_after_sep:
-                xs_sd[ns] = torch.cat((xs_sd[ns], *visuals), dim=2)
+            if self.subsample is not None:
+                xs_sd[ns], masks_sd[ns] = self.subsample(xs_sd[ns], masks_sd[ns])
+            if self.concat_av_after_sep:
+                visuals_tmp = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_sd[ns].shape[1]).transpose(2, 1) for v in visuals]
+                xs_sd[ns] = torch.cat((xs_sd[ns], *visuals_tmp), dim=2)
             if self.proj_av_after_sep:
                 xs_sd[ns] = self.hidden_linear(xs_sd[ns])
             xs_sd[ns], masks_sd[ns] = self.encoders(xs_sd[ns], masks_sd[ns])

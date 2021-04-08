@@ -35,14 +35,15 @@ encoder_conf:
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
     self_attention_dropout_rate: 0.0
-    src_attention_dropout_rate: 0.0
     input_layer: conv2d2
-    input_layer_v: conv1d
+    input_layer_v: transformer
     normalize_before: true
-    encoder_layer_type: query_visual
+    encoder_layer_type: default
 
 decoder: av_transformer
 decoder_conf:
+    num_spkrs: 2
+    spkr_rank_aware: false # should be false when using visual information in decoder only
     visual_input_size: 512
     attention_heads: 4
     linear_units: 2048
@@ -51,11 +52,12 @@ decoder_conf:
     positional_dropout_rate_audio: 0.1
     positional_dropout_rate_visual: 0.1
     input_layer_a: embed
-    input_layer_v: linear
+    input_layer_v: raw
     self_attention_dropout_rate: 0.0
     src_attention_dropout_rate: 0.0
     decoder_layer_type: dual_attention
     concat_decoder_output: false # should be true when using 'dual_decoder'
+    use_encoder_output_visual: true
 
 ctc_conf:
     dropout_rate: 0.0
@@ -65,6 +67,7 @@ ctc_conf:
 model_conf:
     ctc_weight: 0.3
     lsm_weight: 0.1
+    spkr_rank_aware_decoder: false # should be false when using visual information in decoder only
 
 optim: adam
 optim_conf:

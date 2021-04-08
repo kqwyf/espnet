@@ -63,6 +63,7 @@ class TransformerEncoderMix(TransformerEncoder, torch.nn.Module):
         positional_dropout_rate: float = 0.1,
         attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
+        subsample_layer: Optional[str] = None,
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
         concat_after: bool = False,
@@ -92,6 +93,19 @@ class TransformerEncoderMix(TransformerEncoder, torch.nn.Module):
         )
         self._output_size = output_size
         self.num_spkrs = num_spkrs
+
+        if subsample_layer == "conv2d":
+            self.subsample = Conv2dSubsampling(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d2":
+            self.subsample = Conv2dSubsampling2(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d6":
+            self.subsample = Conv2dSubsampling6(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d8":
+            self.subsample = Conv2dSubsampling8(output_size, output_size, dropout_rate)
+        elif subsample_layer is None:
+            self.subsample = None
+        else:
+            raise ValueError("unknown subsample_layer: " + subsample_layer)
 
         if positionwise_layer_type == "linear":
             positionwise_layer = PositionwiseFeedForward
@@ -173,6 +187,8 @@ class TransformerEncoderMix(TransformerEncoder, torch.nn.Module):
 
         for ns in range(self.num_spkrs):
             xs_sd[ns], masks_sd[ns] = self.encoders_sd[ns](xs_pad, masks)
+            if self.subsample is not None:
+                xs_sd[ns], masks_sd[ns] = self.subsample(xs_sd[ns], masks_sd[ns])
             xs_sd[ns], masks_sd[ns] = self.encoders(xs_sd[ns], masks_sd[ns])
 
             if self.normalize_before:

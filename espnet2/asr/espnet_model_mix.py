@@ -62,6 +62,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         sym_blank: str = "<blank>",
         spkr_rank_aware_decoder: bool = True,
         fixed_perm: Optional[List[int]] = None,
+        v_perm: Optional[List[int]] = None,
     ):
         assert check_argument_types()
         assert 0.0 <= ctc_weight <= 1.0, ctc_weight
@@ -80,6 +81,7 @@ class ESPnetASRMixModel(AbsESPnetModel):
         self.pit = PIT(self.num_spkrs)
         self.spkr_rank_aware_decoder = spkr_rank_aware_decoder
         self.fixed_perm = fixed_perm
+        self.v_perm = v_perm
 
         self.frontend = frontend
         self.specaug = specaug
@@ -157,6 +159,8 @@ class ESPnetASRMixModel(AbsESPnetModel):
         if visuals:
             visuals = [v[:, :v_len.max(), :] for v, v_len in zip(visuals, visual_lengths)]
             spkr_list = [{'visual': v, 'visual_length': v_len} for v, v_len in zip(visuals, visual_lengths)]
+            if self.v_perm is not None:
+                spkr_list = [spkr_list[i] for i in self.v_perm]
             additional['spkr_list'] = spkr_list
         if len(additional) == 0:
             additional = None

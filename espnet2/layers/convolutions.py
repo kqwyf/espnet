@@ -56,6 +56,56 @@ class Conv1dUpsampling(torch.nn.Module):
             return x, olens
 
 
+class Conv1dChannelUpsampling(torch.nn.Module):
+    """Convolutional 1D upsampling (to 4 times length).
+
+    Args:
+        idim (int): Input dimension.
+        odim (int): Output dimension.
+        dropout_rate (float): Dropout rate.
+        pos_enc (torch.nn.Module): Custom position encoding layer.
+
+    """
+
+    def __init__(self, idim, odim):
+        """Construct an Conv1dUpsampling object."""
+        super(Conv1dChannelUpsampling, self).__init__()
+        self.odim = odim
+        self.conv1 = torch.nn.Sequential(
+            torch.nn.Conv1d(idim, odim * 2, 3, padding=1),
+            torch.nn.ReLU(),
+        )
+        self.conv2 = torch.nn.Sequential(
+            torch.nn.Conv1d(odim, odim * 2, 3, padding=1),
+            torch.nn.ReLU(),
+        )
+        self.out = torch.nn.Linear(odim, odim)
+
+    def forward(self, x, ilens=None):
+        """Subsample x.
+
+        Args:
+            x (torch.Tensor): Input tensor (#batch, time, idim).
+            x_mask (torch.Tensor): Input mask (#batch, 1, time).
+
+        Returns:
+            torch.Tensor: Subsampled tensor (#batch, time', odim),
+                where time' = time * 4.
+            torch.Tensor: Subsampled mask (#batch, 1, time'),
+                where time' = time * 4.
+
+        """
+        batch_size = x.shape[0]
+        x = self.conv1(x.transpose(2, 1)).transpose(2, 1).contiguous().view(batch_size, -1, self.odim)
+        x = self.conv2(x.transpose(2, 1)).transpose(2, 1).contiguous().view(batch_size, -1, self.odim)
+        x = self.out(x)
+        if ilens is None:
+            return x
+        else:
+            olens = ilens * 2
+            return x, olens
+
+
 class Conv1dRes(torch.nn.Module):
     """Convolutional 1D Resnet.
 

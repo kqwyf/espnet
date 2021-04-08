@@ -70,6 +70,7 @@ class AV_TransformerEncoderMixNaive(AbsAVEncoder):
         attention_dropout_rate: float = 0.0,
         input_layer: Optional[str] = "conv2d",
         input_layer_v: Optional[str] = "raw",
+        subsample_layer: Optional[str] = None,
         visual_transformer_input_layer: Optional[str] = "linear",
         pos_enc_class=PositionalEncoding,
         normalize_before: bool = True,
@@ -115,6 +116,19 @@ class AV_TransformerEncoderMixNaive(AbsAVEncoder):
             )
         else:
             raise ValueError("unknown input_layer: " + input_layer)
+
+        if subsample_layer == "conv2d":
+            self.subsample = Conv2dSubsampling(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d2":
+            self.subsample = Conv2dSubsampling2(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d6":
+            self.subsample = Conv2dSubsampling6(output_size, output_size, dropout_rate)
+        elif subsample_layer == "conv2d8":
+            self.subsample = Conv2dSubsampling8(output_size, output_size, dropout_rate)
+        elif subsample_layer is None:
+            self.subsample = None
+        else:
+            raise ValueError("unknown subsample_layer: " + subsample_layer)
 
         hidden_visual_size = output_size
         if input_layer_v == "linear":
@@ -320,17 +334,21 @@ class AV_TransformerEncoderMixNaive(AbsAVEncoder):
             else:
                 visuals = [self.embed_v(v) for v in visuals]
                 visual_masks = [None] * len(visuals) # old masks should be dropped
-        visuals = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
         xs_sd, masks_sd = [None] * self.num_spkrs, [None] * self.num_spkrs
 
         if self.use_visual_in == "sd":
-            xs_pad = torch.cat((xs_pad, *visuals), dim=2)
+            visuals_tmp = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_pad.shape[1]).transpose(2, 1) for v in visuals]
+            xs_pad = torch.cat((xs_pad, *visuals_tmp), dim=2)
+
         for ns in range(self.num_spkrs):
             xs_sd[ns], masks_sd[ns] = self.encoders_sd[ns](xs_pad, masks)
+            if self.subsample is not None:
+                xs_sd[ns], masks_sd[ns] = self.subsample(xs_sd[ns], masks_sd[ns])
             if self.use_visual_in == "sd":
                 xs_sd[ns] = self.av_proj(xs_sd[ns])
             if self.use_visual_in == "rec":
-                xs_sd[ns] = torch.cat((xs_sd[ns], *visuals), dim=2)
+                visuals_tmp = [torch.nn.functional.interpolate(v.transpose(2, 1), xs_sd[ns].shape[1]).transpose(2, 1) for v in visuals]
+                xs_sd[ns] = torch.cat((xs_sd[ns], *visuals_tmp), dim=2)
             xs_sd[ns], masks_sd[ns] = self.encoders(xs_sd[ns], masks_sd[ns])
             if self.use_visual_in == "rec":
                 xs_sd[ns] = self.av_proj(xs_sd[ns])

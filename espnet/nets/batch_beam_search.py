@@ -248,6 +248,32 @@ class BatchBeamSearch(BeamSearch):
                             item_new['visual_length'] = torch.cat([item['visual_length']] * n_batch, dim=0)
                         spkr_list_new.append(item_new)
                     additional_new['spkr_list'] = spkr_list_new
+                elif key == "encoder_additional_output":
+                    encoder_additional_output_new = {}
+                    encoder_additional_output = additional['encoder_additional_output']
+                    for k in encoder_additional_output:
+                        if k == 'spkr_list':
+                            spkr_list_new = []
+                            spkr_list = encoder_additional_output['spkr_list']
+                            for item in spkr_list:
+                                item_new = {}
+                                if 'visual' in item:
+                                    item_new['visual'] = torch.cat([item['visual']] * n_batch, dim=0)
+                                if 'visual_length' in item:
+                                    if item['visual_length'] is not None:
+                                        item_new['visual_length'] = torch.cat([item['visual_length']] * n_batch, dim=0)
+                                    else:
+                                        item_new['visual_length'] = None
+                                if 'visual_mask' in item:
+                                    if item['visual_mask'] is not None:
+                                        item_new['visual_mask'] = torch.cat([item['visual_mask']] * n_batch, dim=0)
+                                    else:
+                                        item_new['visual_mask'] = None
+                                spkr_list_new.append(item_new)
+                            encoder_additional_output_new['spkr_list'] = spkr_list_new
+                        else:
+                            encoder_additional_output_new[k] = encoder_additional_output[k]
+                    additional_new['encoder_additional_output'] = encoder_additional_output_new
                 else:
                     additional_new[key] = additional[key]
             expanded_x['additional'] = additional_new

@@ -225,7 +225,10 @@ class AV_BaseTransformerDecoder(AbsAVDecoder, MultiSourcesBatchScorerInterface):
             y.shape` is (batch, maxlen_out, token)
         """
         x = self.embed_a(tgt)
-        vs = [self.embed_v(visual) for visual in visuals]
+        if self.embed_v is not None:
+            vs = [self.embed_v(visual) for visual in visuals]
+        else:
+            vs = visuals
         if self.concat_decoder_output:
             x = (x,) + (x,) * len(visuals)
             tgt_mask = (tgt_mask,) + (tgt_mask,) * len(visuals)
@@ -363,6 +366,7 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
         decoder_layer_type: str = "dual_attention",
         concat_decoder_output: bool = False, # should be True when using 'dual_decoder'
         spkr_rank_aware: bool = True,
+        use_encoder_output_visual: bool = False,
     ):
         assert check_argument_types()
 
@@ -381,6 +385,7 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
             num_spkrs=num_spkrs,
             concat_decoder_output=concat_decoder_output,
             spkr_rank_aware=spkr_rank_aware,
+            use_encoder_output_visual=use_encoder_output_visual,
         )
 
         attention_dim = encoder_output_size
@@ -417,6 +422,7 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
                     ),
                 ),
             )
+
         elif decoder_layer_type == "dual_attention":
             if spkr_rank_aware:
                 size_concat = attention_dim + attention_dim
@@ -443,6 +449,34 @@ class AV_TransformerDecoder(AV_BaseTransformerDecoder):
                     concat_after,
                 ),
             )
+
+        elif decoder_layer_type == "dual_attention2":
+            if spkr_rank_aware:
+                size_concat = attention_dim + attention_dim
+            else:
+                size_concat = attention_dim + attention_dim * num_spkrs
+            self.decoders = repeat(
+                num_blocks,
+                lambda lnum: DualAttentionDecoderLayer(
+                    attention_dim,
+                    attention_dim,
+                    size_concat,
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, self_attention_dropout_rate
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
+                    dropout_rate,
+                    normalize_before,
+                    concat_after,
+                ),
+            )
+
         else:
             raise NotImplementedError("decoder_layer_type only supports dual_attention or dual_decoder.")
 
